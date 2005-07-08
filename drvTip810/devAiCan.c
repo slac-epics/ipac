@@ -35,12 +35,9 @@ Copyright (c) 1995-2000 Andrew Johnson
 *******************************************************************************/
 
 
-#include <vxWorks.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <wdLib.h>
-#include <logLib.h>
 
 #include "errMdef.h"
 #include "devLib.h"
@@ -56,23 +53,28 @@ Copyright (c) 1995-2000 Andrew Johnson
 #include "devSup.h"
 #include "dbCommon.h"
 #include "aiRecord.h"
+#include "menuConvert.h"
 #include "canBus.h"
 #include "epicsExport.h"
+#include "epicsInterrupt.h"
 
 
 #define CONVERT 0
 #define DO_NOT_CONVERT 2
 
+#ifndef OK
+#define OK 0
+#endif
 
 typedef struct aiCanPrivate_s {
     CALLBACK callback;		/* This *must* be first member */
     struct aiCanPrivate_s *nextPrivate;
-    WDOG_ID wdId;
+    epicsTimerId wdId;
     IOSCANPVT ioscanpvt;
     struct aiRecord *prec;
     canIo_t inp;
-    ulong_t mask;
-    ulong_t sign;
+    unsigned long mask;
+    unsigned long sign;
     long data;
     double dval;
     int status;
@@ -122,7 +124,7 @@ LOCAL long init_ai (
     aiCanPrivate_t *pcanAi;
     aiCanBus_t *pbus;
     int status;
-    ulong_t fsd;
+    unsigned long fsd;
 
     if (prec->inp.type != INST_IO) {
 	recGblRecordError(S_db_badField, (void *) prec,
@@ -186,7 +188,7 @@ LOCAL long init_ai (
 	    pcanAi->sign = 0;
 	}
 
-	if (prec->linr == 1) {
+	if (prec->linr == menuConvertLINEAR) {
 	    prec->roff = pcanAi->sign;
 	    prec->eslo = (prec->eguf - prec->egul) / fsd;
 	} else {
@@ -221,7 +223,7 @@ LOCAL long init_ai (
     	/* Fill it in */
     	pbus->firstPrivate = NULL;
     	pbus->canBusID = pcanAi->inp.canBusID;
-    	callbackSetCallback((VOIDFUNCPTR) busCallback, &pbus->callback);
+    	callbackSetCallback((void(*)()) busCallback, &pbus->callback);
     	callbackSetPriority(priorityMedium, &pbus->callback);
     	
     	/* and add it to the list of busses we know about */
@@ -237,11 +239,11 @@ LOCAL long init_ai (
     pbus->firstPrivate = pcanAi;
 
     /* Set the callback parameters for asynchronous processing */
-    callbackSetCallback((VOIDFUNCPTR) aiProcess, &pcanAi->callback);
+    callbackSetCallback((void(*)()) aiProcess, &pcanAi->callback);
     callbackSetPriority(prec->prio, &pcanAi->callback);
 
     /* and create a watchdog for CANbus RTR timeouts */
-    pcanAi->wdId = wdCreate();
+    pcanAi->wdId = epicsTimerQueueCreateTimer( canWdTimerQ, (void(*)())callbackRequest, pcanAi);
     if (pcanAi->wdId == NULL) {
 	return S_dev_noMemory;
     }
@@ -328,8 +330,7 @@ LOCAL long read_ai (
 		pcanAi->status = TIMEOUT_ALARM;
 
 		callbackSetPriority(prec->prio, &pcanAi->callback);
-		wdStart(pcanAi->wdId, pcanAi->inp.timeout, 
-			(FUNCPTR) callbackRequest, (int) pcanAi);
+		epicsTimerStartDelay(pcanAi->wdId, pcanAi->inp.timeout);
 		canWrite(pcanAi->inp.canBusID, &message, pcanAi->inp.timeout);
 		return CONVERT;
 	    }
@@ -345,8 +346,8 @@ LOCAL long special_linconv (
     int after
 ) {
     if (after) {
-        if (prec->linr == 1) {
-	    ulong_t fsd;
+        if (prec->linr == menuConvertLINEAR) {
+	    unsigned long fsd;
 	    aiCanPrivate_t *pcanAi = (aiCanPrivate_t *) prec->dpvt;
 
 	    fsd = abs(pcanAi->inp.parameter);
@@ -416,7 +417,7 @@ LOCAL void aiMessage (
 	scanIoRequest(pcanAi->ioscanpvt);
     } else if (pcanAi->status == TIMEOUT_ALARM) {
 	pcanAi->status = NO_ALARM;
-	wdCancel(pcanAi->wdId);
+	epicsTimerCancel(pcanAi->wdId);
 	callbackRequest(&pcanAi->callback);
     }
 }
@@ -429,19 +430,22 @@ LOCAL void busSignal (
     
     switch(status) {
 	case CAN_BUS_OK:
-	    logMsg("devAiCan: Bus Ok event from %s\n", 
-	    	   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
+#if DOMESSAGES
+            epicsInterruptContextMessage("devAiCan: Bus Ok event");
+#endif
 	    pbus->status = NO_ALARM;
 	    break;
 	case CAN_BUS_ERROR:
-	    logMsg("devAiCan: Bus Error event from %s\n", 
-	    	   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
+#if DOMESSAGES
+            epicsInterruptContextMessage("devAiCan: Bus Error event");
+#endif
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;
 	case CAN_BUS_OFF:
-	    logMsg("devAiCan: Bus Off event from %s\n", 
-	    	   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
+#if DOMESSAGES
+            epicsInterruptContextMessage("devAiCan: Bus Off event");
+#endif
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;

@@ -39,7 +39,7 @@ Copyright (c) 1995-2000 Andrew Johnson
 #ifndef INCpca82c200H
 #define INCpca82c200H
 
-#include <types.h>
+#include <sys/types.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -158,41 +158,45 @@ extern "C" {
 /* Message Buffers */
 
 typedef struct {
-    uchar_t pad0;
-    uchar_t descriptor0;
-    uchar_t pad1;
-    uchar_t descriptor1;
-    ushort_t data[8];
+    unsigned char pad0;
+    unsigned char descriptor0;
+    unsigned char pad1;
+    unsigned char descriptor1;
+    unsigned short data[8];
 } msgBuffer_t;
 
 
 /* Chip Registers */
 
 typedef volatile struct {
-    uchar_t pad00;
-    uchar_t control;
-    uchar_t pad01;
-    uchar_t command;
-    uchar_t pad02;
-    uchar_t status;
-    uchar_t pad03;
-    uchar_t interrupt;
-    uchar_t pad04;
-    uchar_t acceptanceCode;
-    uchar_t pad05;
-    uchar_t acceptanceMask;
-    uchar_t pad06;
-    uchar_t busTiming0;
-    uchar_t pad07;
-    uchar_t busTiming1;
-    uchar_t pad08;
-    uchar_t outputControl;
-    uchar_t pad09;
-    uchar_t test;
+    unsigned char pad00;
+    unsigned char control;
+    unsigned char pad01;
+    unsigned char command;
+    unsigned char pad02;
+    unsigned char status;
+    unsigned char pad03;
+    unsigned char interrupt;
+    unsigned char pad04;
+    unsigned char acceptanceCode;
+    unsigned char pad05;
+    unsigned char acceptanceMask;
+    unsigned char pad06;
+    unsigned char busTiming0;
+    unsigned char pad07;
+    unsigned char busTiming1;
+    unsigned char pad08;
+    unsigned char outputControl;
+    unsigned char pad09;
+    unsigned char test;
     msgBuffer_t txBuffer;
     msgBuffer_t rxBuffer;
-    uchar_t pad31;
-    uchar_t clockDivider;
+    unsigned char pad30;
+    unsigned char notImpl;
+    unsigned char pad31;
+    unsigned char clockDivider;
+    unsigned char pad32;
+    unsigned char irqNum;
 } pca82c200_t;
 
 

@@ -2,5 +2,10 @@
 # Run "gnumake clean uninstall install" in the application
 # top directory each time this file is changed.
 
-IOCAPPS=/usr/local/iocapps/R3.14.7
-EPICS_BASE=$(IOCAPPS)/base/3-14-7-asd1
+#If using macro substitutions, point MSI at the binary:
+#MSI=<path>extensions/bin/$(EPICS_HOST_ARCH)/msi
+
+# EPICS_BASE usually appears last so other apps can override stuff:
+EPICS_BASE=/afs/slac/g/lcls/epics/base
+TEMPLATE_TOP=$(EPICS_BASE)/templates/makeBaseApp/top
+INSTALL_LOCATION_APP=$(TOP)/../..

@@ -12,6 +12,6 @@ include $(TOP)/configure/CONFIG
 DIRS := configure
 DIRS += drvIpac
 DIRS += drvTip810
-DIRS += tyGSOctal
+#DIRS += tyGSOctal
 
 include $(TOP)/configure/RULES_TOP

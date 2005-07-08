@@ -33,7 +33,7 @@ Copyright (c) 1995-2000 Andrew Johnson
 
 *******************************************************************************/
 
-#include <vxWorks.h>
+#include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 
@@ -50,6 +50,9 @@ Copyright (c) 1995-2000 Andrew Johnson
 #include "pca82c200.h"
 #include "epicsExport.h"
 
+#ifndef OK
+#define OK 0
+#endif
 
 /* Create the dset for devBiTip810 */
 LOCAL long init_bi(struct biRecord *prec);
@@ -87,7 +90,7 @@ LOCAL long init_bi(
 	{ "SENDING",	PCA_SR_TS },
 	{ "SENT", 	PCA_SR_TCS },
 	{ "OK_TO_SEND",	PCA_SR_TBS },
-	{ NULL,		NULL }
+	{ NULL,		0 }
     };
 
     char *canString;

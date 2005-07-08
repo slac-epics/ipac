@@ -35,11 +35,8 @@ Copyright (c) 1995-2000 Andrew Johnson
 *******************************************************************************/
 
 
-#include <vxWorks.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <wdLib.h>
-#include <logLib.h>
 
 #include "errMdef.h"
 #include "devLib.h"
@@ -56,10 +53,17 @@ Copyright (c) 1995-2000 Andrew Johnson
 #include "mbboDirectRecord.h"
 #include "canBus.h"
 #include "epicsExport.h"
+#include "epicsInterrupt.h"
 
 
 #define DO_NOT_CONVERT	2
 
+#ifndef OK
+#define OK 0
+#endif
+#ifndef ERROR
+#define ERROR -1
+#endif
 
 typedef struct mbboDirectCanPrivate_s {
     struct mbboDirectCanPrivate_s *nextPrivate;
@@ -171,7 +175,7 @@ LOCAL long init_mbboDirect (
     	/* Fill it in */
     	pbus->firstPrivate = NULL;
     	pbus->canBusID = pcanMbboDirect->out.canBusID;
-    	callbackSetCallback((VOIDFUNCPTR) busCallback, &pbus->callback);
+    	callbackSetCallback((void(*)()) busCallback, &pbus->callback);
     	callbackSetPriority(priorityMedium, &pbus->callback);
     	
     	/* and add it to the list of busses we know about */
@@ -291,19 +295,22 @@ LOCAL void busSignal (
     
     switch(status) {
 	case CAN_BUS_OK:
-	    logMsg("devMbboDirectCan: Bus Ok event from %s\n",
-	    	   (int) pbus->firstPrivate->out.busName, 0, 0, 0, 0, 0);
+#if DOMESSAGES
+            epicsInterruptContextMessage("devMbboDirectCan: Bus Ok event");
+#endif
 	    pbus->status = NO_ALARM;
 	    break;
 	case CAN_BUS_ERROR:
-	    logMsg("devMbboDirectCan: Bus Error event from %s\n",
-	    	   (int) pbus->firstPrivate->out.busName, 0, 0, 0, 0, 0);
+#if DOMESSAGES
+            epicsInterruptContextMessage("devMbboDirectCan: Bus Error event");
+#endif
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;
 	case CAN_BUS_OFF:
-	    logMsg("devMbboDirectCan: Bus Off event from %s\n",
-	    	   (int) pbus->firstPrivate->out.busName, 0, 0, 0, 0, 0);
+#if DOMESSAGES
+            epicsInterruptContextMessage("devMbboDirectCan: Bus Off event");
+#endif
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;

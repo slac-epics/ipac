@@ -38,7 +38,7 @@ Copyright (c) 1995-2000 Andrew Johnson
 #ifndef INCdrvTip810H
 #define INCdrvTip810H
 
-#include <types.h>
+#include <sys/types.h>
 #include "canBus.h"
 
 
@@ -56,8 +56,8 @@ Copyright (c) 1995-2000 Andrew Johnson
 
 extern int t810Status(void *canBusID);
 extern int t810Report(int page);
-extern int t810Create(char *busName, ushort_t card, ushort_t slot, 
-		      ushort_t irqNum, uint_t busRate);
+extern int t810Create(char *busName, unsigned short card, unsigned short slot, 
+		      unsigned short irqNum, unsigned int busRate);
 extern int t810Shutdown(int starttype);
 extern int t810Initialise(void);
 

@@ -37,6 +37,7 @@ Copyright (c) 1995-2000 Andrew Johnson
 
 
 #ifndef NO_EPICS
+#  include "devLib.h"
 #  include "drvSup.h"
 #  include "epicsExport.h"
 #endif
@@ -45,10 +46,13 @@ Copyright (c) 1995-2000 Andrew Johnson
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-#include <vxLib.h>
-#include <intLib.h>
-#include <iv.h>
+#ifdef NO_EPICS
+#  include <vxLib.h>
+#  include <intLib.h>
+#  include <iv.h>
+#endif
 #include "drvIpac.h"
+
 
 
 #define IPAC_MAX_CARRIERS 21
@@ -61,8 +65,8 @@ struct carrierInfo {
 };
 
 LOCAL struct {
-    ushort_t number;
-    ushort_t latest;
+    unsigned short number;
+    unsigned short latest;
     struct carrierInfo info[IPAC_MAX_CARRIERS];
 } carriers = {
     0, USHRT_MAX
@@ -200,7 +204,7 @@ Returns:
 
 */
 
-ushort_t ipacLatestCarrier(void)
+unsigned short ipacLatestCarrier(void)
 {
     return carriers.latest;
 }
@@ -228,11 +232,11 @@ Returns:
 */
 
 int ipmCheck (
-    ushort_t carrier, 
-    ushort_t slot
+    unsigned short carrier, 
+    unsigned short slot
 ) {
     ipac_idProm_t *id;
-    ushort_t dummy;
+    unsigned short dummy;
 
     if (carrier >= carriers.number ||
 	slot >= carriers.info[carrier].driver->numberSlots) {
@@ -243,8 +247,12 @@ int ipmCheck (
     if (id == NULL) {
 	return S_IPAC_badDriver;
     }
-
+#ifdef NO_EPICS
     if (vxMemProbe((void *)&id->asciiI, READ, sizeof(dummy), (char *)&dummy)) {
+      
+#else
+      if (devReadProbe(sizeof(dummy),(void *)&id->asciiI, &dummy)) {
+#endif
 	return S_IPAC_noModule;
     }
     
@@ -291,11 +299,11 @@ Returns:
 */
 
 LOCAL int checkCRC (
-    uint16_t *data, 
-    ushort_t length
+    unsigned short *data, 
+    unsigned short length
 ) {
-    uint_t i, crc = 0xffff;
-    uint16_t mask;
+    unsigned long i, crc = 0xffff;
+    unsigned short mask;
 
     for (i = 0; i < length; i++) {
 	mask = 0x80;
@@ -340,10 +348,10 @@ Returns:
 */
 
 int ipmValidate (
-    ushort_t carrier, 
-    ushort_t slot,
-    uchar_t manufacturerId, 
-    uchar_t modelId
+    unsigned short carrier, 
+    unsigned short slot,
+    unsigned char manufacturerId, 
+    unsigned char modelId
 ) {
     ipac_idProm_t *id;
     int crc;
@@ -355,7 +363,7 @@ int ipmValidate (
     }
 
     id = (ipac_idProm_t *) ipmBaseAddr(carrier, slot, ipac_addrID);
-    crc = checkCRC((uint16_t *) id, id->bytesUsed & 0xff);
+    crc = checkCRC((unsigned short *) id, id->bytesUsed & 0xff);
     if (crc != (id->CRC & 0xff)) {
 	return S_IPAC_badCRC;
     }
@@ -392,8 +400,8 @@ Sample Output:
 */
 
 char *ipmReport (
-    ushort_t carrier, 
-    ushort_t slot
+    unsigned short carrier, 
+    unsigned short slot
 ) {
     static char report[IPAC_REPORT_LEN+32];
     int status;
@@ -455,8 +463,8 @@ Returns:
 */
 
 void *ipmBaseAddr (
-    ushort_t carrier, 
-    ushort_t slot,
+    unsigned short carrier, 
+    unsigned short slot,
     ipac_addr_t space
 ) {
     if (carrier >= carriers.number ||
@@ -491,9 +499,9 @@ Returns:
 */
 
 int ipmIrqCmd (
-    ushort_t carrier, 
-    ushort_t slot, 
-    ushort_t irqNumber, 
+    unsigned short carrier, 
+    unsigned short slot, 
+    unsigned short irqNumber, 
     ipac_irqCmd_t cmd
 ) {
     if (irqNumber > 1 ||
@@ -536,9 +544,9 @@ Returns:
 
 */
 int ipmIntConnect (
-	ushort_t carrier, 
-	ushort_t slot, 
-	ushort_t vecNum, 
+	unsigned short carrier, 
+	unsigned short slot, 
+	unsigned short vecNum, 
 	void (*routine)(int parameter), 
 	int parameter
 ) {
@@ -550,7 +558,11 @@ int ipmIntConnect (
 
     /* Use intConnect if carrier driver doesn't provide one */
     if (carriers.info[carrier].driver->intConnect == NULL) {
-    	return intConnect (INUM_TO_IVEC((int)vecNum), routine, parameter);
+#ifdef NO_EPICS
+	return intConnect (INUM_TO_IVEC((int)vecNum), routine, parameter);
+#else
+        return devConnectInterruptVME (vecNum, (void(*)())routine, (void*)parameter);
+#endif
     }
 
     return carriers.info[carrier].driver->intConnect(
@@ -582,7 +594,7 @@ Returns:
 int ipacReport (
     int interest
 ) {
-    ushort_t carrier, slot;
+    unsigned short carrier, slot;
 
     for (carrier=0; carrier < carriers.number; carrier++) {
 	printf("  IP Carrier %2d: %s, %d slots\n", carrier, 
