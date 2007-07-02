@@ -1,0 +1,20 @@
+#==============================================================
+#
+#  Name: RELEASE_NOTES
+#
+#  Rem:  This file contains the release notes for ipac as
+#        pertains to the LCLS release format and procedures.
+#
+#        The initial version of this software written 
+#        by Andrew Johnson at APS.
+#
+#  Auth: 22-May-2007, K. Luchini         (LUCHINI)
+#  Rev:  dd-mmm-yyyy, Reviewer's Name    (USERNAME)
+#--------------------------------------------------------------
+#  Mod:
+#        dd-mmm-yyyy, First Lastname      (USERNAME)
+#          comment
+#
+#==============================================================
+#
+ipac-R1-0-0: Initial release used in LCLS Injector and BC1.
