@@ -5,6 +5,8 @@
 #If using macro substitutions, point MSI at the binary:
 #MSI=<path>extensions/bin/$(EPICS_HOST_ARCH)/msi
 
-# EPICS_BASE usually appears last so other apps can override stuff:
-include /afs/slac/g/lcls/epics/site/configure/RELEASE-base
+# EPICS_BASE usually appears last so other apps can override stuff
+EPICS_BASE=$(EPICS_BASE_RELEASE)
+EPICS_BASE_RELEASE=/afs/slac/g/lcls/build/epics/base/base-R1-0-0
+
 
