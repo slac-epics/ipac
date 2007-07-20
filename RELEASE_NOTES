@@ -18,3 +18,4 @@
 #==============================================================
 #
 ipac-R1-0-0: Initial release used in LCLS Injector and BC1.
+ipac-R1-0-1: Add Hytec 8002 carrier card support; used by motion control subsystems
