@@ -3,11 +3,12 @@ TOP = ..
 include $(TOP)/configure/CONFIG
 
 DBD += drvIpac.dbd
+DBD += drv8002.dbd
+DBD += drvXy9660.dbd
 
 INC += drvIpac.h
 INC += drvXy9660.h
 INC += xipIo.h
-
 
 HTMLS_DIR = .
 HTMLS += index.html
