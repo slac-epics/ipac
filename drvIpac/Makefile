@@ -5,6 +5,9 @@ include $(TOP)/configure/CONFIG
 DBD += drvIpac.dbd
 
 INC += drvIpac.h
+INC += drvXy9660.h
+INC += xipIo.h
+
 
 HTMLS_DIR = .
 HTMLS += index.html
@@ -22,6 +25,12 @@ LIBSRCS += drvVipc310.c
 LIBSRCS += drvVipc610.c
 LIBSRCS += drvVipc616.c
 LIBSRCS_vxWorks += drvTvme200.c
+
+# Hytec VME bus carrier driver
+LIBSRCS += drvHy8002.c
+
+# Xycom (and acromag) VME bus carrier driver
+LIBSRCS += drvXy9660.c
 
 # MVME162 & MVME172: IPchip carrier driver
 LIBSRCS_vxWorks += drvIpMv162.c

@@ -12,10 +12,13 @@
 #  Rev:  dd-mmm-yyyy, Reviewer's Name    (USERNAME)
 #--------------------------------------------------------------
 #  Mod:
-#        dd-mmm-yyyy, First Lastname      (USERNAME)
-#          comment
+#        28-Aug-2008, K. Luchini         (LUCHINI):
+#          release ipiac-R1-0-1
 #
 #==============================================================
 #
+ipac-R1-0-1: Add Hytec 8002 carrier card support
+             Add Xycom 9660 carrier card support
+
 ipac-R1-0-0: Initial release used in LCLS Injector and BC1.
-ipac-R1-0-1: Add Hytec 8002 carrier card support; used by motion control subsystems
+
