@@ -9,13 +9,5 @@ driver(drvIpac)
 #registrar(vipc610Registrar)
 #registrar(vipc616Registrar)
 
-# Hytec VME bus carrier board
-#registrar(Hy8002Registrar)
-
-# xycom VME bus carrier board
-# Note: the Xycom Xy9660 driver works for the acromag avme9660 
-# and the avme9670
-#registrar(xy9660Registrar)
-
 # The ATC40 carrier builds on ISA-bus (x86) systems only:
 #registrar(atc40Registrar)
