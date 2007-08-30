@@ -1,4 +1,4 @@
-/* $Id: drvHy8002.c,v 1.1 2007/07/20 17:54:29 drm Exp $
+/* $Id: drvHy8002.c,v 1.1 2007/08/29 02:50:15 ernesto Exp $
    Implement an IPAC carrier interface as defined
    by Andrew Johnson <anjohnson@iee.org>
    for the Hytec 8002 carrier board.
@@ -267,46 +267,10 @@ carrISR( int vmeslotnum)
 #define TASKDELAY  0.3          /* seconds */
 
 static void
-INTcarrierscan(int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10)
-	{
-        static volatile int _numLeft = 0;
-        PrivateInfo *cc;
-        int res, ldoit;
-        unsigned short probedummy;
-
-        /*
-           begin
-         */
-        while(1)
-        	{
-                epicsThreadSleep( TASKDELAY);
-                ldoit = ( _numLeft > 0);
-                if(ldoit)
-                	{
-                        cc = _CarrierList;
-                        while(cc != NULL)
-                        	{
-                                if(!cc->ispresent)
-                                	{
-                                        res = devReadProbe(sizeof(unsigned short), (volatile const void *) (cc->baseaddr + CARR_IPSTAT), (void *) &probedummy);
-                                        if(res == OK)
-                                        	{
-                                                cc->ispresent = TRUE;
-                                                HWdump(cc);
-                                        	}
-                                	}
-                                cc = cc->next;
-                        	}
-                	}               /*if ldoit */
-        	}                       /*while (1) */
-	}
-
-
-static void
 POLLcarrierscan(void *unused)
 	{
         PrivateInfo *cc;
-        int res, nowpresent;
+        int nowpresent;
         unsigned short probedummy;
 
         /*
@@ -344,7 +308,7 @@ POLLcarrierscan(void *unused)
 void
 hotSwapInit()
 	{
-        int res, d1;
+        int res;
 
         /*
            begin
@@ -811,23 +775,6 @@ report( void *cPrivate, unsigned short slot)
         return NULL;
 	}
 
-
-
-/*return 1 if the card is in the system*/
-static int
-CarrierIsPresent(void *cPrivate)
-	{
-        PrivateInfo *cc = (PrivateInfo *) cPrivate;
-        int retval, res;
-
-        epicsMutexLock(_ListLock);
-        retval = (cc->ispresent);
-        epicsMutexUnlock(_ListLock);
-
-        return retval;
-	}
-
-
 /* Return base addresses for this slot
    and register the address.
 */
@@ -1002,7 +949,6 @@ irqCmd(void *cPrivate, unsigned short slot, unsigned short irqnum, ipac_irqCmd_t
 	{
         int retval = S_IPAC_notImplemented;
         PrivateInfo *pv = (PrivateInfo *) cPrivate;
-        int res;
         unsigned short ipstat, mymask;
         unsigned short dodump = 0;
 
