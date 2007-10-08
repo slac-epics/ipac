@@ -13,6 +13,7 @@
 #--------------------------------------------------------------
 #  Mod:
 #        08-OCt-2007, K. Luchini         (LUCHINI):
+#          release ipac-R2-8-lcls2
 #          release ipac-R2-8-lcls1
 #          release ipac-R1-0-2
 #        30-Aug-2007, K. Luchini         (LUCHINI):
@@ -22,6 +23,8 @@
 #
 #==============================================================
 #
+ipac-R2-8-lcls2: Build with base-R2-14-9-lcls1
+
 ipac-R2-8-lcls1: Retag with new naming convention
 
 ipac-R1-0-3: Build with base-R3-14-8-2-lcls2 (RTEMS 4.7.1)
