@@ -12,6 +12,8 @@
 #  Rev:  dd-mmm-yyyy, Reviewer's Name    (USERNAME)
 #--------------------------------------------------------------
 #  Mod:
+#        08-OCt-2007, K. Luchini         (LUCHINI):
+#          release ipac-R1-0-2
 #        30-Aug-2007, K. Luchini         (LUCHINI):
 #          release ipac-R1-0-2
 #        28-Aug-2007, K. Luchini         (LUCHINI):
@@ -19,6 +21,8 @@
 #
 #==============================================================
 #
+ipac-R1-0-3: Build with base-R3-14-8-2-lcls2 (RTEMS 4.7.1)
+
 ipac-R1-0-2: Fix drvH8002.c compilewarnings
 
 ipac-R1-0-1: Add Hytec 8002 carrier card support
