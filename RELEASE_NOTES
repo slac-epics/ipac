@@ -27,7 +27,7 @@
 #
 ipac-R2-8-lcls3: Backout to build with base-R2-14-8-2-lcls2
                  Compile drvHy8002.c with  no hotswap option
-                 Modify drvHy8002.c ipac model number check
+                 Modify drvHy8002.c ip carrier id number check
 
 ipac-R2-8-lcls2: Build with base-R2-14-9-lcls1
 
