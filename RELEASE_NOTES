@@ -25,6 +25,9 @@
 #
 #==============================================================
 #
+ipac-R2-8-1-lcls3:
+	modifications needed to bring the module to EPICS R3-14-9 standard
+
 ipac-R2-8-lcls3: Backout to build with base-R2-14-8-2-lcls2
                  Compile drvHy8002.c with  no hotswap option
                  Modify drvHy8002.c ip carrier id number check
