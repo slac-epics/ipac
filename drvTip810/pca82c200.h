@@ -15,7 +15,7 @@ Author:
 Created:
     19 July 1995
 Version:
-    pca82c200.h,v 1.2 2000/02/21 21:36:10 anj Exp
+    pca82c200.h,v 1.3 2007/05/25 19:42:14 anj Exp
 
 Copyright (c) 1995-2000 Andrew Johnson
 
@@ -39,7 +39,7 @@ Copyright (c) 1995-2000 Andrew Johnson
 #ifndef INCpca82c200H
 #define INCpca82c200H
 
-#include <sys/types.h>
+#include <epicsTypes.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -158,45 +158,43 @@ extern "C" {
 /* Message Buffers */
 
 typedef struct {
-    unsigned char pad0;
-    unsigned char descriptor0;
-    unsigned char pad1;
-    unsigned char descriptor1;
-    unsigned short data[8];
+    epicsUInt8 pad0;
+    epicsUInt8 descriptor0;
+    epicsUInt8 pad1;
+    epicsUInt8 descriptor1;
+    epicsUInt16 data[8];
 } msgBuffer_t;
 
 
 /* Chip Registers */
 
 typedef volatile struct {
-    unsigned char pad00;
-    unsigned char control;
-    unsigned char pad01;
-    unsigned char command;
-    unsigned char pad02;
-    unsigned char status;
-    unsigned char pad03;
-    unsigned char interrupt;
-    unsigned char pad04;
-    unsigned char acceptanceCode;
-    unsigned char pad05;
-    unsigned char acceptanceMask;
-    unsigned char pad06;
-    unsigned char busTiming0;
-    unsigned char pad07;
-    unsigned char busTiming1;
-    unsigned char pad08;
-    unsigned char outputControl;
-    unsigned char pad09;
-    unsigned char test;
+    epicsUInt8 pad00;
+    epicsUInt8 control;
+    epicsUInt8 pad01;
+    epicsUInt8 command;
+    epicsUInt8 pad02;
+    epicsUInt8 status;
+    epicsUInt8 pad03;
+    epicsUInt8 interrupt;
+    epicsUInt8 pad04;
+    epicsUInt8 acceptanceCode;
+    epicsUInt8 pad05;
+    epicsUInt8 acceptanceMask;
+    epicsUInt8 pad06;
+    epicsUInt8 busTiming0;
+    epicsUInt8 pad07;
+    epicsUInt8 busTiming1;
+    epicsUInt8 pad08;
+    epicsUInt8 outputControl;
+    epicsUInt8 pad09;
+    epicsUInt8 test;
     msgBuffer_t txBuffer;
     msgBuffer_t rxBuffer;
-    unsigned char pad30;
-    unsigned char notImpl;
-    unsigned char pad31;
-    unsigned char clockDivider;
-    unsigned char pad32;
-    unsigned char irqNum;
+    epicsUInt8 pad30;
+    epicsUInt8 notImpl;
+    epicsUInt8 pad31;
+    epicsUInt8 clockDivider;
 } pca82c200_t;
 
 

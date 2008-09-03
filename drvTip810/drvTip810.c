@@ -14,9 +14,9 @@ Author:
 Created:
     20 July 1995
 Version:
-    drvTip810.c,v 1.18 2004/12/16 18:56:41 anj Exp
+    drvTip810.c,v 1.19 2007/05/25 19:42:14 anj Exp
 
-Copyright (c) 1995-2003 Andrew Johnson
+Copyright (c) 1995-2007 Andrew Johnson
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -34,57 +34,6 @@ Copyright (c) 1995-2003 Andrew Johnson
 
 *******************************************************************************/
 
-#include "drvTip810.h"
-#include "drvIpac.h"
-#include "pca82c200.h"
-
-
-#ifdef NO_EPICS
-#include <vxWorks.h>
-#include <iv.h>
-#include <intLib.h>
-#include <rebootLib.h>
-#include <semLib.h>
-#define SEM_TAKE	semTake
-#define SEM_FOREVER	NO_WAIT
-#include <logLib.h>
-#include <sysLib.h>
-#include <msgQLib.h>
-#include <taskLib.h>
-#else
-/* OK, this is not really OSI - epics has no message queue :-(
- * we make our life easy by using RTEMS message queues...
- */
-#if defined(__vxworks) || defined(__vxworks__) || defined(vxWorks)
-#include <vxWorks.h>
-#include <msgQLib.h>
-#elif defined(__rtems__)
-#include <rtems.h>
-#define  MSG_Q_ID	rtems_id
-#else
-#error "no message queue available on this system"
-#endif
-#include "devLib.h"
-#include "epicsMutex.h"
-#include "epicsTimer.h"
-#include "epicsThread.h"
-#include "epicsInterrupt.h"
-#include "epicsEvent.h"
-#define  semGive(id) \
-		epicsEventSignal((id))
-#define  SEM_TAKE(id,timeout) \
-		(epicsEventWaitOK == ( (errno=-1, (timeout) >= 0.) ? \
-			   epicsEventWaitWithTimeout((id),(timeout))   :  \
-			   epicsEventWait((id))) ? 0 : -1)
-#define  SEM_FOREVER	(-1.)
-
-#ifndef OK
-#define OK 0
-#endif
-#ifndef ERROR
-#define ERROR -1
-#endif
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -92,25 +41,32 @@ Copyright (c) 1995-2003 Andrew Johnson
 #include <ctype.h>
 #include <errno.h>
 
+#include <iocsh.h>
+#include <drvSup.h>
+#include <devLib.h>
+#include <epicsExit.h>
+#include <epicsEvent.h>
+#include <epicsMutex.h>
+#include <epicsTimer.h>
+#include <epicsThread.h>
+#include <epicsExport.h>
+#include <epicsInterrupt.h>
+#include <epicsMessageQueue.h>
+
+#include "canBus.h"
+#include "drvTip810.h"
+#include "drvIpac.h"
+#include "pca82c200.h"
+
+
 /* Some local magic numbers */
 #define T810_MAGIC_NUMBER 81001
-#ifdef NO_EPICS
-#define RECV_TASK_PRIO 55	/* vxWorks task priority */
-#else
-#define RECV_TASK_PRIO epicsThreadPriorityMax
-#endif
-#define RECV_TASK_STACK 20000	/* task stack size */
 #define RECV_Q_SIZE 1000	/* Num messages to buffer */
 
 /* These are the IPAC IDs for this module */
 #define IP_MANUFACTURER_TEWS 0xb3 
 #define IP_MODEL_TEWS_TIP810 0x01
 
-
-#ifndef NO_EPICS
-# include "drvSup.h"
-# include "iocsh.h"
-# include "epicsExport.h"
 
 /* EPICS Driver Support Entry Table */
 
@@ -121,9 +77,7 @@ struct drvet drvTip810 = {
 };
 epicsExportAddress(drvet, drvTip810);
 
-epicsTimerQueueId canWdTimerQ=0;
-
-#endif /* NO_EPICS */
+epicsTimerQueueId canTimerQ = NULL;
 
 
 typedef void callback_t(void *pprivate, long parameter);
@@ -135,38 +89,26 @@ typedef struct callbackTable_s {
 } callbackTable_t;
 
 
-typedef struct t810Dev_s {
-    struct t810Dev_s *pnext;	/* To next device. Must be first member */
+typedef struct canBusID_s {
+    struct canBusID_s *pnext;	/* To next device. Must be first member */
     int magicNumber;		/* device pointer confirmation */
     char *pbusName;		/* Bus identification */
-    unsigned short card;		/* Industry Pack address */
-    unsigned short slot;		/*     "     "      "    */
-    unsigned short irqNum;		/* interrupt vector number */
-    unsigned int busRate;		/* bit rate of bus in Kbits/sec */
+    int card;			/* Industry Pack address */
+    int slot;			/*     "     "      "    */
+    int irqNum; 		/* interrupt vector number */
+    int busRate;		/* bit rate of bus in Kbits/sec */
     pca82c200_t *pchip;		/* controller registers */
-#ifdef NO_EPICS
-    SEM_ID txSem;		/* Transmit buffer protection */
-#else
-    epicsEventId txSem;
-#endif
-    unsigned int txCount;		/* messages transmitted */
-    unsigned int rxCount;		/* messages received */
-    unsigned int overCount;		/* overrun - lost messages */
-    unsigned int unusedCount;		/* messages without callback */
-    unsigned short unusedId;		/* last ID received without a callback */
-    unsigned int errorCount;		/* Times entered Error state */
-    unsigned int busOffCount;		/* Times entered Bus Off state */
-#ifdef NO_EPICS
-    SEM_ID readSem;		/* canRead task Mutex */
-#else
-    epicsMutexId readSem;
-#endif
+    epicsEventId txSem;		/* Transmit complete signal */
+    int txCount;		/* messages transmitted */
+    int rxCount;		/* messages received */
+    int overCount;		/* overrun - lost messages */
+    int unusedCount;		/* messages without callback */
+    canID_t unusedId;		/* last ID received without a callback */
+    int errorCount;		/* Times entered Error state */
+    int busOffCount;		/* Times entered Bus Off state */
+    epicsMutexId readSem;	/* canRead task Mutex */
     canMessage_t *preadBuffer;	/* canRead destination buffer */
-#ifdef NO_EPICS
-    SEM_ID rxSem;		/* canRead message arrival signal */
-#else
-    epicsEventId    rxSem;
-#endif
+    epicsEventId rxSem;		/* canRead message arrival signal */
     callbackTable_t *pmsgHandler[CAN_IDENTIFIERS];	/* message callbacks */
     callbackTable_t *psigHandler;	/* error signal callbacks */
 } t810Dev_t;
@@ -177,11 +119,10 @@ typedef struct {
 } t810Receipt_t;
 
 
-LOCAL t810Dev_t *pt810First = NULL;
+static t810Dev_t *pt810First = NULL;
+static epicsMessageQueueId receiptQueue = NULL;
 
-int canSilenceErrors = FALSE;	/* Really for EPICS device support use */
-
-LOCAL MSG_Q_ID receiptQueue = 0;
+int canSilenceErrors = FALSE;	/* for EPICS device support use */
 int t810maxQueued = 0;		/* not static so may be reset by operator */
 
 /*******************************************************************************
@@ -202,14 +143,14 @@ Returns:
 */
 
 int t810Status (
-    void *canBusID
+    canBusID_t canBusID
 ) {
-    t810Dev_t *pdevice = (t810Dev_t *)canBusID;
+    t810Dev_t *pdevice = canBusID;
     if (canBusID != 0 &&
-    	pdevice->magicNumber == T810_MAGIC_NUMBER) {
-    	return pdevice->pchip->status;
+	pdevice->magicNumber == T810_MAGIC_NUMBER) {
+	return pdevice->pchip->status;
     } else {
-    	return -1;
+	return -1;
     }
 }
 
@@ -228,7 +169,7 @@ Description:
     additional information about each device.
 
 Returns:
-    OK, or
+    0, or
     S_t810_badDevice if device list corrupted.
 
 */
@@ -237,8 +178,9 @@ int t810Report (
     int interest
 ) {
     t810Dev_t *pdevice = pt810First;
-    unsigned short id, printed;
-    unsigned char status;
+    canID_t id;
+    int printed;
+    int status;
 
     if (interest > 0) {
 	printf("  Receive queue holds %d messages, max %d = %d %% used.\n", 
@@ -312,7 +254,7 @@ int t810Report (
 	}
 	pdevice = pdevice->pnext;
     }
-    return OK;
+    return 0;
 }
 
 
@@ -330,7 +272,11 @@ Description:
     of the linked list.
 
 Returns:
-    
+    0,
+    ENOMEM if malloc() fails,
+    S_t810_badBusRate for an unsupported bus rate,
+    S_t810_duplicateDevice if card/slot already used,
+    any result from ipmValidate().
 
 Example:
     t810Create "CAN1", 0, 0, 0x60, 500
@@ -339,15 +285,15 @@ Example:
 
 int t810Create (
     char *pbusName,	/* Unique Identifier for this device */
-    unsigned short card,	/* Ipac Driver card .. */
-    unsigned short slot,	/* .. and slot number */
-    unsigned short irqNum,	/* interrupt vector number */
-    unsigned int busRate	/* in Kbits/sec */
+    int card,		/* Ipac Driver card .. */
+    int slot,		/* .. and slot number */
+    int irqNum, 	/* interrupt vector number */
+    int busRate 	/* in Kbits/sec */
 ) {
     static const struct {
-	unsigned int rate;
-	unsigned char busTiming0;
-	unsigned char busTiming1;
+	int rate;
+	epicsUInt8 busTiming0;
+	epicsUInt8 busTiming1;
     } rateTable[] = {
 	{ 5,    PCA_BTR0_5K,    PCA_BTR1_5K	},
 	{ 10,   PCA_BTR0_10K,   PCA_BTR1_10K	},
@@ -397,7 +343,7 @@ int t810Create (
 
     pdevice = malloc(sizeof (t810Dev_t));
     if (pdevice == NULL) {
-	return errno;
+	return ENOMEM;
     }
     /* pdevice is our new device table */
 
@@ -416,23 +362,14 @@ int t810Create (
 	pdevice->pmsgHandler[id] = NULL;
     }
 
-#ifdef NO_EPICS
-    pdevice->txSem   = semBCreate(SEM_Q_PRIORITY, SEM_FULL);
-    pdevice->rxSem   = semBCreate(SEM_Q_PRIORITY, SEM_EMPTY);
-    pdevice->readSem = semMCreate(SEM_Q_PRIORITY | 
-				  SEM_INVERSION_SAFE | 
-				  SEM_DELETE_SAFE);
-#else
-    errno = -1;  /* in case mutex/event alloc fails */
     pdevice->txSem   = epicsEventCreate(epicsEventFull);
     pdevice->rxSem   = epicsEventCreate(epicsEventEmpty);
     pdevice->readSem = epicsMutexCreate();
-#endif
     if (pdevice->txSem == NULL ||
 	pdevice->rxSem == NULL ||
 	pdevice->readSem == NULL) {
 	free(pdevice);		/* Ought to free those semaphores, but... */
-	return errno;
+	return ENOMEM;
     }
 
     plist->pnext = pdevice;
@@ -449,7 +386,7 @@ int t810Create (
     /* chip now initialised, but held in the Reset state */
 
     ipmIrqCmd(card, slot, 0, ipac_statActive);
-    return OK;
+    return 0;
 }
 
 
@@ -469,23 +406,22 @@ Returns:
 
 */
 
-int t810Shutdown (
-    int startType
+void t810Shutdown (
+    void *dummy
 ) {
     t810Dev_t *pdevice = pt810First;
 
     while (pdevice != NULL) {
 	if (pdevice->magicNumber != T810_MAGIC_NUMBER) {
-	    /* Whoops! */
-	    return S_t810_badDevice;
+	    return;
 	}
 
 	pdevice->pchip->control = PCA_CR_RR;	/* Reset, interrupts off */
 	ipmIrqCmd(pdevice->card, pdevice->slot, 0, ipac_statUnused);
-	
+
 	pdevice = pdevice->pnext;
     }
-    return OK;
+    return;
 }
 
 
@@ -506,11 +442,12 @@ Returns:
 
 */
 
-LOCAL void getRxMessage (
+static void getRxMessage (
     pca82c200_t *pchip,
     canMessage_t *pmessage
 ) {
-    unsigned char desc0, desc1, i;
+    epicsUInt8 desc0, desc1;
+    int i;
 
     desc0 = pchip->rxBuffer.descriptor0;
     desc1 = pchip->rxBuffer.descriptor1;
@@ -549,11 +486,12 @@ Returns:
 
 */
 
-LOCAL void putTxMessage (
+static void putTxMessage (
     pca82c200_t *pchip,
-    canMessage_t *pmessage
+    const canMessage_t *pmessage
 ) {
-    unsigned char desc0, desc1, i;
+    epicsUInt8 desc0, desc1;
+    int i;
 
     desc0  = pmessage->identifier >> PCA_MSG_ID0_RSHIFT;
     desc1  = (pmessage->identifier << PCA_MSG_ID1_LSHIFT) & PCA_MSG_ID1_MASK;
@@ -583,14 +521,14 @@ Purpose:
     calls all routines in the given list
 
 Description:
-    
+
 
 Returns:
     void
 
 */
 
-LOCAL void doCallbacks (
+static void doCallbacks (
     callbackTable_t *phandler,
     long parameter
 ) {
@@ -610,28 +548,19 @@ Purpose:
     Interrupt Service Routine
 
 Description:
-    
+
 
 Returns:
     void
 
 */
 
-LOCAL void t810ISR (
-    t810Dev_t *pdevice
+static void t810ISR (
+    int pdev
 ) {
-    unsigned char intSource = pdevice->pchip->interrupt;
+    t810Dev_t *pdevice = (t810Dev_t *) pdev;
+    int intSource = pdevice->pchip->interrupt;
 
-    /* disable interrupts for this carrier and slot */
-    if (ipmIrqCmd(pdevice->card, pdevice->slot, 0,
-                  ipac_irqDisable) == S_IPAC_badAddress) {    
-#ifdef NO_EPICS
-      logMsg("t810ISR: Error in card or slot number\n", 0, 0, 0, 0, 0, 0);
-#else
-      epicsInterruptContextMessage("t810ISR: Error in card or slot number");
-#endif
-    }
-    
     if (intSource & PCA_IR_OI) {		/* Overrun Interrupt */
         pdevice->overCount++;
         canBusStop(pdevice->pbusName);		/* Reset the chip but not */
@@ -641,61 +570,42 @@ LOCAL void t810ISR (
     }
 
     if (intSource & PCA_IR_RI) {		/* Receive Interrupt */
-        t810Receipt_t qmsg;
+	t810Receipt_t qmsg;
 
 	/* Take a local copy of the message */
-        qmsg.pdevice = pdevice;
+	qmsg.pdevice = pdevice;
 	getRxMessage(pdevice->pchip, &qmsg.message);
 
-        /* Send it to the servicing task */
-#ifdef __rtems__
-		if (RTEMS_SUCCESSFUL !=
-			rtems_message_queue_send(receiptQueue, &qmsg, sizeof(t810Receipt_t)))
-#else
-        if (msgQSend(receiptQueue, (char *)&qmsg, sizeof(t810Receipt_t), 
-                     NO_WAIT, MSG_PRI_NORMAL) == ERROR)
-#endif
-#ifdef NO_EPICS
-           logMsg("Warning: CANbus receive queue overflow\n", 0, 0, 0, 0, 0, 0);
-#else
-	       epicsInterruptContextMessage("Warning: CANbus receive queue overflow");
-#endif
-           
+	/* Send it to the servicing task */
+	if (epicsMessageQueueTrySend(receiptQueue, &qmsg,
+				sizeof(t810Receipt_t)) && !canSilenceErrors)
+	    epicsInterruptContextMessage("Warning: CANbus receive queue overflow");
     }
 
     if (intSource & PCA_IR_EI) {		/* Error Interrupt */
 	callbackTable_t *phandler = pdevice->psigHandler;
-	unsigned short status;
+	int status;
 
 	switch (pdevice->pchip->status & (PCA_SR_ES | PCA_SR_BS)) {
 	    case PCA_SR_ES:
 		status = CAN_BUS_ERROR;
 		pdevice->errorCount++;
-#ifdef NO_EPICS
-                logMsg("t810ISR: CANbus error event\n", 0, 0, 0, 0, 0, 0);
-#elif DOMESSAGES
-	        epicsInterruptContextMessage("t810ISR: CANbus error event");
-#endif
+		if (!canSilenceErrors)
+		    epicsInterruptContextMessage("t810ISR: CANbus error event");
 		break;
 	    case PCA_SR_BS:
 	    case PCA_SR_BS | PCA_SR_ES:
 		status = CAN_BUS_OFF;
 		pdevice->busOffCount++;
-		semGive(pdevice->txSem);		/* Release transmit */
-                /*pdevice->pchip->control &= ~PCA_CR_RR;*/	/* Clear Reset state */
-#ifdef NO_EPICS
-                logMsg("t810ISR: CANbus off event\n", 0, 0, 0, 0, 0, 0);
-#elif DOMESSAGES 
-	        epicsInterruptContextMessage("t810ISR: CANbus off event");
-#endif
+		epicsEventSignal(pdevice->txSem);	/* Signal transmit */
+		pdevice->pchip->control &= ~PCA_CR_RR;	/* Clear Reset state */
+		if (!canSilenceErrors)
+		    epicsInterruptContextMessage("t810ISR: CANbus off event");
 		break;
 	    default:
 		status = CAN_BUS_OK;
-#ifdef NO_EPICS
-                logMsg("t810ISR: CANbus error event\n", 0, 0, 0, 0, 0, 0);
-#elif DOMESSAGES
-	        epicsInterruptContextMessage("t810ISR: CANbus OK");
-#endif
+		if (!canSilenceErrors)
+		    epicsInterruptContextMessage("t810ISR: CANbus OK");
 		break;
 	}
 
@@ -704,26 +614,12 @@ LOCAL void t810ISR (
 
     if (intSource & PCA_IR_TI) {		/* Transmit Interrupt */
 	pdevice->txCount++;
-	semGive(pdevice->txSem);
+	epicsEventSignal(pdevice->txSem);
     }
 
     if (intSource & PCA_IR_WUI) {		/* Wake-up Interrupt */
-#ifdef NO_EPICS
-	logMsg("Wake-up Interrupt from CANbus '%s'\n", 
-	       (int) pdevice->pbusName, 0, 0, 0, 0, 0);
-#else
-	epicsInterruptContextMessage("Wake-up Interrupt from CANbus");
-#endif
-    }
-    
-    /* Clear and Enable Interrupt from Carrier Board Registers */
-    if (ipmIrqCmd(pdevice->card, pdevice->slot, 0,
-                  ipac_irqClear) == S_IPAC_badAddress) {    
-#ifdef NO_EPICS
-      logMsg("t810ISR: Error in card or slot number\n", 0, 0, 0, 0, 0, 0);
-#else
-      epicsInterruptContextMessage("t810ISR: Error in card or slot number");
-#endif
+	if (!canSilenceErrors)
+	    epicsInterruptContextMessage("Wake-up Interrupt from CANbus");
     }
 }
 
@@ -746,59 +642,41 @@ Returns:
 
 */
 
-LOCAL int t810RecvTask() {
-   t810Receipt_t rmsg;
-   callbackTable_t *phandler;
-   int numQueued;
+static void t810RecvTask(void *dummy) {
+    t810Receipt_t rmsg;
+    callbackTable_t *phandler;
+    int numQueued;
 
-   if (receiptQueue == 0) {
-      fprintf(stderr, "CANbus Receive queue does not exist, task exiting.\n");
-      return ERROR;
-   }
-   printf("CANbus receive task started\n");
+    if (receiptQueue == 0) {
+	fprintf(stderr, "CANbus Receive queue does not exist, task exiting.\n");
+	return;
+    }
+    printf("CANbus receive task started\n");
 
-   while (TRUE) {
-#ifdef __rtems__
-	  rtems_message_queue_get_number_pending(
-					  receiptQueue,
-					  &numQueued);
-#else
-      numQueued = msgQNumMsgs(receiptQueue); 
-#endif
-      if (numQueued > t810maxQueued) t810maxQueued = numQueued;
-      
-#ifdef __rtems__
-	  { rtems_unsigned32 s=sizeof(t810Receipt_t);
-	  rtems_message_queue_receive(
-					  receiptQueue,
-					  &rmsg,
-					  &s,
-					  RTEMS_WAIT,
-					  RTEMS_NO_TIMEOUT); /* wait forever */
-	  }
-#else
-      msgQReceive(receiptQueue, (char *)&rmsg, sizeof(t810Receipt_t), 
-      		  WAIT_FOREVER);
-#endif
-      rmsg.pdevice->rxCount++;
-      
-      /* Look up the message ID and do the message callbacks */
-      phandler = rmsg.pdevice->pmsgHandler[rmsg.message.identifier];
-      if (phandler == NULL) {
-          rmsg.pdevice->unusedId = rmsg.message.identifier;
-          rmsg.pdevice->unusedCount++;
-      } else {
-          doCallbacks(phandler, (long) &rmsg.message);
-      }
+    while (TRUE) {
+	numQueued = epicsMessageQueuePending(receiptQueue);
+        if (numQueued > t810maxQueued) t810maxQueued = numQueued;
 
-      /* If canRead is waiting for this ID, give it the message and kick it */
-      if (rmsg.pdevice->preadBuffer != NULL &&
-          rmsg.pdevice->preadBuffer->identifier == rmsg.message.identifier) {
-          memcpy(rmsg.pdevice->preadBuffer, &rmsg.message, 
-                 sizeof(canMessage_t));
-          rmsg.pdevice->preadBuffer = NULL;
-          semGive(rmsg.pdevice->rxSem);
-      }
+	epicsMessageQueueReceive(receiptQueue, &rmsg, sizeof(t810Receipt_t));
+	rmsg.pdevice->rxCount++;
+
+	/* Look up the message ID and do the message callbacks */
+	phandler = rmsg.pdevice->pmsgHandler[rmsg.message.identifier];
+	if (phandler == NULL) {
+	    rmsg.pdevice->unusedId = rmsg.message.identifier;
+	    rmsg.pdevice->unusedCount++;
+	} else {
+	    doCallbacks(phandler, (long) &rmsg.message);
+	}
+
+	/* If canRead is waiting for this ID, give it the message and kick it */
+	if (rmsg.pdevice->preadBuffer != NULL &&
+	    rmsg.pdevice->preadBuffer->identifier == rmsg.message.identifier) {
+	    memcpy(rmsg.pdevice->preadBuffer, &rmsg.message, 
+		   sizeof(canMessage_t));
+	    rmsg.pdevice->preadBuffer = NULL;
+	    epicsEventSignal(rmsg.pdevice->rxSem);
+	}
    }
 }
 
@@ -816,8 +694,8 @@ Description:
     initialisation of the CAN controller chip and interrupt vector
     registers for all known TIP810 devices and starts the chips
     running.  The receive queue is created and its processing task is
-    started to handle incoming data.  A reboot hook is used to make
-    sure all interrupts are turned off if the OS is shut down.
+    started to handle incoming data.  An exit hook is used to make
+    sure all interrupts are turned off when the IOC is shut down.
 
 Returns:
     int
@@ -828,45 +706,18 @@ int t810Initialise (
     void
 ) {
     t810Dev_t *pdevice = pt810First;
-    int status = OK, err;
+    int status = 0;
 
-#ifdef NO_EPICS
-    rebootHookAdd(t810Shutdown);
-#endif
+    epicsAtExit(t810Shutdown, NULL);
 
-#ifdef __rtems__
-	if (RTEMS_SUCCESSFUL != rtems_message_queue_create(
-								rtems_build_name('C','a','n','Q'),
-								RECV_Q_SIZE,
-								sizeof(t810Receipt_t),
-								RTEMS_FIFO,
-								&receiptQueue))
-			return -1;
-#else
-    receiptQueue = msgQCreate(RECV_Q_SIZE, sizeof(t810Receipt_t), MSG_Q_FIFO);
-#endif
-    if (
-#ifndef __rtems__
-		(receiptQueue == NULL) ||
-#endif
-#if defined(NO_EPICS) || defined(TASK_TODO)
-	taskSpawn("canRecvTask", RECV_TASK_PRIO, VX_FP_TASK, RECV_TASK_STACK, 
-		  t810RecvTask, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) == ERROR
-#else
-	/* initialize our watchdog timer queue */
-	( (errno=-1), ! (canWdTimerQ=epicsTimerQueueAllocate(
-				1, /* ok to share queue */
-				epicsThreadPriorityLow) )) ||
-	0==epicsThreadCreate(
-			"canRecvTask",
-			RECV_TASK_PRIO,
-			RECV_TASK_STACK,
-			(EPICSTHREADFUNC)t810RecvTask,
-			0)
-#endif
-	) {
-	return errno;
-    }
+    receiptQueue = epicsMessageQueueCreate(RECV_Q_SIZE, sizeof(t810Receipt_t));
+    canTimerQ = epicsTimerQueueAllocate(1, epicsThreadPriorityLow);
+    if (receiptQueue == NULL ||
+	canTimerQ == NULL) return ENOMEM;
+
+    if (epicsThreadCreate("canRecvTask", epicsThreadPriorityHigh,
+			  epicsThreadGetStackSize(epicsThreadStackMedium),
+			  t810RecvTask, NULL) == 0) return -1;
 
     while (pdevice != NULL) {
 	pdevice->txCount     = 0;
@@ -876,19 +727,11 @@ int t810Initialise (
 	pdevice->errorCount  = 0;
 	pdevice->busOffCount = 0;
 
-	/* Hmm - I thought that we should use the carrier driver routine here ??
-     * T.S. 3/2002
-	 */
-#if defined(IRQ_TODO)
-	if (intConnect(INUM_TO_IVEC((int)pdevice->irqNum), t810ISR, (int)pdevice)) {
-	    status = errno;
-	}
-#else
-	if ((err=ipmIntConnect(pdevice->card, pdevice->slot, pdevice->irqNum, (void(*)())t810ISR, (int)pdevice))) {
-		status = err;
-	}
-#endif
-        pdevice->pchip->irqNum = pdevice->irqNum;
+	status = ipmIntConnect(pdevice->card, pdevice->slot, pdevice->irqNum,
+			       t810ISR, (int)pdevice);
+
+	/* The TIP810's intVec register is external to the PCA82C200 chip */
+	*((epicsUInt8 *) pdevice->pchip + 0x41) = pdevice->irqNum;
 
 	ipmIrqCmd(pdevice->card, pdevice->slot, 0, ipac_irqEnable);
 
@@ -917,7 +760,7 @@ Description:
     associated with the relevant device table.
 
 Returns:
-    OK, or S_can_noDevice if no match found.
+    0, or S_can_noDevice if no match found.
 
 Example:
     void *can1;
@@ -927,14 +770,14 @@ Example:
 
 int canOpen (
     const char *pbusName,
-    void **ppdevice
+    canBusID_t *pbusID
 ) {
     t810Dev_t *pdevice = pt810First;
 
     while (pdevice != NULL) {
 	if (strcmp(pdevice->pbusName, pbusName) == 0) {
-	    *ppdevice = pdevice;
-	    return OK;
+	    *pbusID = pdevice;
+	    return 0;
 	}
 	pdevice = pdevice->pnext;
     }
@@ -954,7 +797,7 @@ Description:
     Resets the chip and connected to the named bus and all counters
 
 Returns:
-    OK, or S_can_noDevice if no match found.
+    0, or S_can_noDevice if no match found.
 
 Example:
     status = canBusReset("CAN1");
@@ -965,10 +808,10 @@ int canBusReset (
     const char *pbusName
 ) {
     t810Dev_t *pdevice;
-    int status = canOpen(pbusName, (void **) &pdevice);
-    
+    int status = canOpen(pbusName, &pdevice);
+
     if (status) return status;
-    
+
     pdevice->pchip->control |=  PCA_CR_RR;    /* Reset the chip */
     pdevice->txCount   = 0;
     pdevice->rxCount   = 0;
@@ -976,13 +819,13 @@ int canBusReset (
     pdevice->unusedCount = 0;
     pdevice->errorCount  = 0;
     pdevice->busOffCount = 0;
-    semGive(pdevice->txSem);
+    epicsEventSignal(pdevice->txSem);
     pdevice->pchip->control = PCA_CR_OIE |
-			    PCA_CR_EIE |
-			    PCA_CR_TIE |
-			    PCA_CR_RIE;
+			      PCA_CR_EIE |
+			      PCA_CR_TIE |
+			      PCA_CR_RIE;
 
-    return OK;
+    return 0;
 }
 
 
@@ -998,7 +841,7 @@ Description:
     Holds the chip for the named bus in Reset state
 
 Returns:
-    OK, or S_can_noDevice if no match found.
+    0, or S_can_noDevice if no match found.
 
 Example:
     status = canBusStop("CAN1");
@@ -1009,17 +852,17 @@ int canBusStop (
     const char *pbusName
 ) {
     t810Dev_t *pdevice;
-    int status = canOpen(pbusName, (void **) &pdevice);
-    
+    int status = canOpen(pbusName, &pdevice);
+
     if (status) return status;
-    
+
     pdevice->pchip->control |=  PCA_CR_RR;    /* Reset the chip */
-    return OK;
+    return 0;
 }
 
 
 /*******************************************************************************
- 
+
 Routine:
     canBusRestart
 
@@ -1030,7 +873,7 @@ Description:
     Restarts the chip for the named bus after a canBusStop
 
 Returns: 
-    OK, or S_can_noDevice if no match found.
+    0, or S_can_noDevice if no match found.
 
 Example: 
     status = canBusRestart("CAN1");
@@ -1041,17 +884,17 @@ int canBusRestart (
     const char *pbusName
 ) {
     t810Dev_t *pdevice;
-    int status = canOpen(pbusName, (void **) &pdevice);
-    
-    if (status) return status;
-    
-    semGive(pdevice->txSem);
-    pdevice->pchip->control = PCA_CR_OIE |
-			    PCA_CR_EIE |
-			    PCA_CR_TIE |
-			    PCA_CR_RIE;
+    int status = canOpen(pbusName, &pdevice);
 
-    return OK;
+    if (status) return status;
+
+    pdevice->pchip->control = PCA_CR_OIE |
+			      PCA_CR_EIE |
+			      PCA_CR_TIE |
+			      PCA_CR_RIE;
+    epicsEventSignal(pdevice->txSem);
+
+    return 0;
 }
 
 
@@ -1072,7 +915,7 @@ Returns:
 
 */
 
-LOCAL char* strdupn (
+static char* strdupn (
     const char *ct,
     size_t n
 ) {
@@ -1103,7 +946,7 @@ Description:
     into the relevent fields of the canIo_t structure pointed to by pcanIo:
 
     	busname{/timeout}:id{+n}{.offset} parameter
-    
+
     where
     	busname is alphanumeric, all other fields are hex, decimal or octal
     	timeout is in milliseconds
@@ -1112,8 +955,9 @@ Description:
 	parameter is a string or integer for use by device support
 
 Returns:
-    OK, or
+    0, or
     S_can_badAddress for illegal input strings,
+    ENOMEM if malloc() fails,
     S_can_noDevice for an unregistered bus name.
 
 Example:
@@ -1136,7 +980,7 @@ int canIoParse (
     }
 
     /* Get rid of leading whitespace and non-alphanumeric chars */
-    while (!isalnum(*canString)) {
+    while (!isalnum(0xff & *canString)) {
 	if (*canString++ == '\0') {
 	    return S_can_badAddress;
 	}
@@ -1155,26 +999,16 @@ int canIoParse (
     /* now we're at character after the end of the busName */
     pcanIo->busName = strdupn(name, canString - name);
     if (pcanIo->busName == NULL) {
-	return errno;
+	return ENOMEM;
     }
     separator = *canString++;
 
-    /* Handle /<timeout> if present, convert from ms to ticks */
+    /* Handle /<timeout> if present, convert from ms to seconds */
     if (separator == '/') {
-#if defined(NO_EPICS) || defined(TODO)
-	pcanIo->timeout = strtol(canString, &canString, 0) * sysClkRateGet();
-	pcanIo->timeout = ((pcanIo->timeout + 500) / 1000);
-#else
-	/* leave timeout in s */
-	pcanIo->timeout = ((double)strtol(canString, &canString, 0))/1000.;
-#endif
+	pcanIo->timeout = ((double)strtol(canString, &canString, 0))/1000.0;
 	separator = *canString++;
     } else {
-#ifdef NO_EPICS
-	pcanIo->timeout = WAIT_FOREVER;
-#else
-	pcanIo->timeout = -1.;
-#endif
+	pcanIo->timeout = -1.0;
     }
 
     /* String must contain :<canID> */
@@ -1183,10 +1017,10 @@ int canIoParse (
     }
     pcanIo->identifier = strtoul(canString, &canString, 0);
     separator = *canString++;
-    
+
     /* Handle any number of optional +<n> additions to the ID */
     while (separator == '+') {
-    	pcanIo->identifier += strtol(canString, &canString, 0);
+	pcanIo->identifier += strtol(canString, &canString, 0);
 	separator = *canString++;
     }
 
@@ -1206,11 +1040,7 @@ int canIoParse (
 	separator != '\t') {
 	return S_can_badAddress;
     }
-    pcanIo->parameter = strtol(canString, &canString, 0);
-    pcanIo->paramStr = strdupn(canString, strlen(canString));
-    if (pcanIo->paramStr == NULL) {
-	return errno;
-    }
+    pcanIo->parameter = strtol(canString, &pcanIo->paramStr, 0);
 
     /* Ok, finally look up the bus name */
     return canOpen(pcanIo->busName, &pcanIo->canBusID);
@@ -1230,27 +1060,26 @@ Description:
     canBusID.  After some simple argument checks it obtains exclusive access to
     the transmit registers, then copies the message to the chip.  The timeout
     value allows task recovery in the event that exclusive access is not
-    available within a the given number of vxWorks clock ticks.
+    available within a the given number of seconds.
 
 Returns:
-    OK, 
+    0, 
     S_can_badMessage for bad identifier, message length or rtr value,
     S_can_badDevice for bad device pointer,
-    S_objLib_OBJ_TIMEOUT indicates timeout,
+    S_t810_timeout indicates timeout,
     S_t810_transmitterBusy indicates an internal error.
 
 Example:
-    
+
 
 */
 
 int canWrite (
-    void *canBusID,
-    canMessage_t *pmessage,
-    TimeOut timeout
+    canBusID_t busID,
+    const canMessage_t *pmessage,
+    double timeout
 ) {
-    t810Dev_t *pdevice = (t810Dev_t *) canBusID;
-    int status;
+    t810Dev_t *pdevice = busID;
 
     if (pdevice->magicNumber != T810_MAGIC_NUMBER) {
 	return S_t810_badDevice;
@@ -1262,18 +1091,16 @@ int canWrite (
 	return S_can_badMessage;
     }
 
-    status = SEM_TAKE(pdevice->txSem, timeout);
-    if (status) {
-	return errno;
+    if (epicsEventWaitWithTimeout(pdevice->txSem, timeout) != epicsEventWaitOK) {
+	return S_t810_timeout;
     }
 
     if (pdevice->pchip->status & PCA_SR_TBS) {
 	putTxMessage(pdevice->pchip, pmessage);
-	return OK;
-    } else {
-	semGive(pdevice->txSem);
-	return S_t810_transmitterBusy;
+	return 0;
     }
+    epicsEventSignal(pdevice->txSem);
+    return S_t810_transmitterBusy;
 }
 
 
@@ -1300,22 +1127,23 @@ Description:
     routine with each message to allow it to identify its context.
 
 Returns:
-    OK, 
+    0, 
     S_can_badMessage for bad identifier or NULL callback routine,
-    S_t810_badDevice for bad device pointer.
+    S_t810_badDevice for bad device pointer,
+    ENOMEM if malloc() fails.
 
 Example:
-    
+
 
 */
 
 int canMessage (
-    void *canBusID,
-    unsigned short identifier,
+    canBusID_t busID,
+    canID_t identifier,
     canMsgCallback_t *pcallback,
     void *pprivate
 ) {
-    t810Dev_t *pdevice = (t810Dev_t *) canBusID;
+    t810Dev_t *pdevice = busID;
     callbackTable_t *phandler, *plist;
 
     if (pdevice->magicNumber != T810_MAGIC_NUMBER) {
@@ -1329,7 +1157,7 @@ int canMessage (
 
     phandler = malloc(sizeof (callbackTable_t));
     if (phandler == NULL) {
-	return errno;
+	return ENOMEM;
     }
 
     phandler->pnext     = NULL;
@@ -1343,7 +1171,7 @@ int canMessage (
     /* plist now points to the last handler in the list */
 
     plist->pnext = phandler;
-    return OK;
+    return 0;
 }
 
 
@@ -1362,23 +1190,23 @@ Description:
     identical to those given to canMessage.
 
 Returns:
-    OK, 
+    0, 
     S_can_badMessage for bad identifier or NULL callback routine,
     S_can_noMessage for no matching message callback,
     S_t810_badDevice for bad device pointer.
 
 Example:
-    
+
 
 */
 
 int canMsgDelete (
-    void *canBusID,
-    unsigned short identifier,
+    canBusID_t busID,
+    canID_t identifier,
     canMsgCallback_t *pcallback,
     void *pprivate
 ) {
-    t810Dev_t *pdevice = (t810Dev_t *) canBusID;
+    t810Dev_t *pdevice = busID;
     callbackTable_t *phandler, *plist;
 
     if (pdevice->magicNumber != T810_MAGIC_NUMBER) {
@@ -1392,14 +1220,14 @@ int canMsgDelete (
 
     plist = (callbackTable_t *) (&pdevice->pmsgHandler[identifier]);
     while (plist->pnext != NULL) {
-    	phandler = plist->pnext;
-    	if (((canMsgCallback_t *)phandler->pcallback == pcallback) &&
-    	    (phandler->pprivate  == pprivate)) {
-    	    plist->pnext = phandler->pnext;
-    	    phandler->pnext = NULL;		/* Just in case... */
-    	    free(phandler);
-    	    return OK;
-    	}
+	phandler = plist->pnext;
+	if (((canMsgCallback_t *)phandler->pcallback == pcallback) &&
+	    (phandler->pprivate  == pprivate)) {
+	    plist->pnext = phandler->pnext;
+	    phandler->pnext = NULL;		/* Just in case... */
+	    free(phandler);
+	    return 0;
+	}
 	plist = phandler;
     }
 
@@ -1422,7 +1250,7 @@ Description:
     from vxWorks Interrupt Context, thus there are restrictions in what
     the routine can perform (see vxWorks User Guide for details of
     these).  The callback routine should be declared a canSigCallback_t
-	void callback(void *pprivate, unsigned short status);
+	void callback(void *pprivate, int status);
     The pprivate value supplied to canSignal is passed to the callback
     routine with the error status to allow it to identify its context.
     Status values will be one of
@@ -1433,20 +1261,21 @@ Description:
     restart it.
 
 Returns:
-    OK, 
-    S_t810_badDevice for bad device pointer.
+    0,
+    S_t810_badDevice for bad device pointer,
+    ENOMEM if malloc() fails.
 
 Example:
-    
+
 
 */
 
 int canSignal (
-    void *canBusID,
+    canBusID_t busID,
     canSigCallback_t *pcallback,
     void *pprivate
 ) {
-    t810Dev_t *pdevice = (t810Dev_t *) canBusID;
+    t810Dev_t *pdevice = busID;
     callbackTable_t *phandler, *plist;
 
     if (pdevice->magicNumber != T810_MAGIC_NUMBER) {
@@ -1455,7 +1284,7 @@ int canSignal (
 
     phandler = malloc(sizeof (callbackTable_t));
     if (phandler == NULL) {
-	return errno;
+	return ENOMEM;
     }
 
     phandler->pnext     = NULL;
@@ -1469,7 +1298,7 @@ int canSignal (
     /* plist now points to the last handler in the list */
 
     plist->pnext = phandler;
-    return OK;
+    return 0;
 }
 
 
@@ -1489,10 +1318,10 @@ Description:
     to use the canMessage callback functions.
 
 Returns:
-    OK, or
+    0, or
     S_t810_badDevice for bad bus ID, 
     S_can_badMessage for bad message Identifier or length,
-    S_objLib_OBJ_TIMEOUT for timeout
+    S_t810_timeout for timeout
 
 Example:
     canMessage_t myBuffer = {
@@ -1505,11 +1334,11 @@ Example:
 */
 
 int canRead (
-    void *canBusID,
+    canBusID_t busID,
     canMessage_t *pmessage,
-    TimeOut timeout
+    double timeout
 ) {
-    t810Dev_t *pdevice = (t810Dev_t *) canBusID;
+    t810Dev_t *pdevice = busID;
     int status;
 
     if (pdevice->magicNumber != T810_MAGIC_NUMBER) {
@@ -1521,54 +1350,36 @@ int canRead (
 	return S_can_badMessage;
     }
 
-    /* This semaphore is so only one task canRead simultaneously */
-#ifdef NO_EPICS
-    status = semTake(pdevice->readSem, timeout);
-    if (status) {
-	return errno;
+    /* Ensure that only one task canRead at once */
+    if (epicsMutexLock(pdevice->readSem) != epicsMutexLockOK) {
+	return S_t810_badDevice;
     }
-#else
-    if (timeout < 0.0)
-    {
-      if (epicsMutexLockOK != epicsMutexLock(pdevice->readSem)) return -1;
-    }
-    else
-    {
-      TimeOut timeElapsed = 0;
-      epicsMutexLockStatus lockStatus;
-      while(1) {
-        lockStatus = epicsMutexTryLock(pdevice->readSem);
-        if (lockStatus == epicsMutexLockOK) break;
-        if ((epicsMutexLockError == lockStatus) || (timeElapsed >= timeout)) return -1;
-        epicsThreadSleep(.05);
-        timeElapsed += .05;
-      }
-    }
-#endif
 
     pdevice->preadBuffer = pmessage;
 
     /* All set for the reply, now send the request */
     pmessage->rtr = RTR;
 
-    status = canWrite(canBusID, pmessage, timeout);
-    if (status == OK) {
+    status = canWrite(busID, pmessage, timeout);
+    if (status == 0) {
 	/* Wait for the message to be recieved */
-	status = SEM_TAKE(pdevice->rxSem, timeout);
-	if (status) {
-	    status = errno;
+	switch (epicsEventWaitWithTimeout(pdevice->rxSem, timeout)) {
+	case epicsEventWaitTimeout:
+	    status = S_t810_timeout;
+	    break;
+	case epicsEventWaitError:
+	    status = S_t810_badDevice;
+	    break;
+	default:
+	    break;
 	}
     }
     if (status) {
 	/* Problem (timeout) sending the RTR or receiving the reply */
 	pdevice->preadBuffer = NULL;
-	SEM_TAKE(pdevice->rxSem, SEM_FOREVER);	/* Must leave this EMPTY */
+	epicsEventTryWait(pdevice->rxSem);	/* Try to clean up */
     }
-#ifdef NO_EPICS
-    semGive(pdevice->readSem);
-#else
     epicsMutexUnlock(pdevice->readSem);
-#endif
     return status;
 }
 
@@ -1585,33 +1396,33 @@ Description:
     This routine is intended for use from the vxWorks shell.
 
 Returns:
-    Ok, or ERROR
+    0, or ERROR
 
 Example:
-    
+
 
 */
 
 int canTest (
     char *pbusName,
-    unsigned short identifier,
-    unsigned short rtr,
-    unsigned char length,
+    canID_t identifier,
+    int rtr,
+    int length,
     char *data
 ) {
-    void *canBusID;
+    canBusID_t busID;
     canMessage_t message;
     int status;
 
     if (pbusName == NULL) {
 	printf("Usage: canTest \"busname\", id, rtr, len, \"data\"\n");
-	return ERROR;
+	return -1;
     }
 
-    status = canOpen(pbusName, &canBusID);
+    status = canOpen(pbusName, &busID);
     if (status) {
 	printf("Error %d opening CAN bus '%s'\n", status, pbusName);
-	return ERROR;
+	return -1;
     }
 
     message.identifier = identifier;
@@ -1622,30 +1433,18 @@ int canTest (
 	memcpy(&message.data[0], data, length);
     }
 
-    status = canWrite(canBusID, &message, 0);
+    status = canWrite(busID, &message, 0);
     if (status) {
 	printf("Error %d writing message\n", status);
-	return ERROR;
+	return -1;
     }
-    return OK;
+    return 0;
 }
 
 
 /*******************************************************************************
-* EPICS iocsh Command registry
-*/
-
-#ifndef NO_EPICS
-
-/* t810Report(int interest) */
-static const iocshArg t810ReportArg0 = {"interest", iocshArgInt};
-static const iocshArg * const t810ReportArgs[1] = {&t810ReportArg0};
-static const iocshFuncDef t810ReportFuncDef =
-    {"t810Report",1,t810ReportArgs};
-static void t810ReportCallFunc(const iocshArgBuf *args)
-{
-    t810Report(args[0].ival);
-}
+ * EPICS iocsh Command registry
+ */
 
 /* t810Create(char *pbusName, int card, int slot, int irqNum, int busRate) */
 static const iocshArg t810CreateArg0 = {"busName",iocshArgPersistentString};
@@ -1664,10 +1463,52 @@ static void t810CreateCallFunc(const iocshArgBuf *arg)
 	       arg[4].ival);
 }
 
+/* t810Report(int interest) */
+static const iocshArg t810ReportArg0 = {"interest", iocshArgInt};
+static const iocshArg * const t810ReportArgs[1] = {&t810ReportArg0};
+static const iocshFuncDef t810ReportFuncDef =
+    {"t810Report",1,t810ReportArgs};
+static void t810ReportCallFunc(const iocshArgBuf *args)
+{
+    t810Report(args[0].ival);
+}
+
+/* canBusReset(char *pbusName) */
+static const iocshArg canBusResetArg0 = {"busName", iocshArgString};
+static const iocshArg * const canBusResetArgs[1] = {&canBusResetArg0};
+static const iocshFuncDef canBusResetFuncDef =
+    {"canBusReset",1,canBusResetArgs};
+static void canBusResetCallFunc(const iocshArgBuf *args)
+{
+    canBusReset(args[0].sval);
+}
+
+/* canBusStop(char *pbusName) */
+static const iocshArg canBusStopArg0 = {"busName", iocshArgString};
+static const iocshArg * const canBusStopArgs[1] = {&canBusStopArg0};
+static const iocshFuncDef canBusStopFuncDef =
+    {"canBusStop",1,canBusStopArgs};
+static void canBusStopCallFunc(const iocshArgBuf *args)
+{
+    canBusStop(args[0].sval);
+}
+
+/* canBusRestart(char *pbusName) */
+static const iocshArg canBusRestartArg0 = {"busName", iocshArgString};
+static const iocshArg * const canBusRestartArgs[1] = {&canBusRestartArg0};
+static const iocshFuncDef canBusRestartFuncDef =
+    {"canBusRestart",1,canBusRestartArgs};
+static void canBusRestartCallFunc(const iocshArgBuf *args)
+{
+    canBusRestart(args[0].sval);
+}
+
 static void drvTip810Registrar(void) {
-    iocshRegister(&t810ReportFuncDef,t810ReportCallFunc);
     iocshRegister(&t810CreateFuncDef,t810CreateCallFunc);
+    iocshRegister(&t810ReportFuncDef,t810ReportCallFunc);
+    iocshRegister(&canBusResetFuncDef,canBusResetCallFunc);
+    iocshRegister(&canBusStopFuncDef,canBusStopCallFunc);
+    iocshRegister(&canBusRestartFuncDef,canBusRestartCallFunc);
 }
 epicsExportRegistrar(drvTip810Registrar);
 
-#endif

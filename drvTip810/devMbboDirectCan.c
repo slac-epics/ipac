@@ -14,7 +14,7 @@ Author:
 Created:
     14 August 1995
 Version:
-    devMbboDirectCan.c,v 1.13 2003/10/29 20:46:32 anj Exp
+    devMbboDirectCan.c,v 1.14 2007/05/25 19:42:14 anj Exp
 
 Copyright (c) 1995-2000 Andrew Johnson
 
@@ -38,56 +38,50 @@ Copyright (c) 1995-2000 Andrew Johnson
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "errMdef.h"
-#include "devLib.h"
-#include "dbAccess.h"
-#include "dbScan.h"
-#include "callback.h"
-#include "cvtTable.h"
-#include "alarm.h"
-#include "recGbl.h"
-#include "link.h"
-#include "recSup.h"
-#include "devSup.h"
-#include "dbCommon.h"
-#include "mbboDirectRecord.h"
+#include <errMdef.h>
+#include <devLib.h>
+#include <dbAccess.h>
+#include <dbScan.h>
+#include <callback.h>
+#include <cvtTable.h>
+#include <alarm.h>
+#include <recGbl.h>
+#include <link.h>
+#include <recSup.h>
+#include <devSup.h>
+#include <dbCommon.h>
+#include <mbboDirectRecord.h>
+#include <epicsExport.h>
+
 #include "canBus.h"
-#include "epicsExport.h"
-#include "epicsInterrupt.h"
 
 
 #define DO_NOT_CONVERT	2
 
-#ifndef OK
-#define OK 0
-#endif
-#ifndef ERROR
-#define ERROR -1
-#endif
 
 typedef struct mbboDirectCanPrivate_s {
     struct mbboDirectCanPrivate_s *nextPrivate;
     IOSCANPVT ioscanpvt;
-    struct mbboDirectRecord *prec;
+    dbCommon *prec;
     canIo_t out;
-    long data;
+    epicsUInt32 data;
     int status;
 } mbboDirectCanPrivate_t;
 
 typedef struct mbboDirectCanBus_s {
-    CALLBACK callback;		/* This *must* be first member */
+    CALLBACK callback;
     struct mbboDirectCanBus_s *nextBus;
     mbboDirectCanPrivate_t *firstPrivate;
     void *canBusID;
     int status;
 } mbboDirectCanBus_t;
 
-LOCAL long init_mbboDirect(struct mbboDirectRecord *prec);
-LOCAL long get_ioint_info(int cmd, struct mbboDirectRecord *prec, IOSCANPVT *ppvt);
-LOCAL long write_mbboDirect(struct mbboDirectRecord *prec);
-LOCAL void mbboDirectMessage(mbboDirectCanPrivate_t *pcanMbboDirect, canMessage_t *pmessage);
-LOCAL void busSignal(mbboDirectCanBus_t *pbus, int status);
-LOCAL void busCallback(mbboDirectCanBus_t *pbus);
+static long init_mbboDirect(struct mbboDirectRecord *prec);
+static long get_ioint_info(int cmd, struct mbboDirectRecord *prec, IOSCANPVT *ppvt);
+static long write_mbboDirect(struct mbboDirectRecord *prec);
+static void mbboDirectMessage(void *private, const canMessage_t *pmessage);
+static void busSignal(void *private, int status);
+static void busCallback(CALLBACK *pCallback);
 
 struct {
     long number;
@@ -106,10 +100,10 @@ struct {
 };
 epicsExportAddress(dset, devMbboDirectCan);
 
-LOCAL mbboDirectCanBus_t *firstBus;
+static mbboDirectCanBus_t *firstBus;
 
 
-LOCAL long init_mbboDirect (
+static long init_mbboDirect (
     struct mbboDirectRecord *prec
 ) {
     mbboDirectCanPrivate_t *pcanMbboDirect;
@@ -117,17 +111,17 @@ LOCAL long init_mbboDirect (
     int status;
 
     if (prec->out.type != INST_IO) {
-	recGblRecordError(S_db_badField, (void *) prec,
+	recGblRecordError(S_db_badField, prec,
 			  "devMbboDirectCan (init_record) Illegal OUT field");
 	return S_db_badField;
     }
 
-    pcanMbboDirect = (mbboDirectCanPrivate_t *) malloc(sizeof(mbboDirectCanPrivate_t));
+    pcanMbboDirect = malloc(sizeof(mbboDirectCanPrivate_t));
     if (pcanMbboDirect == NULL) {
 	return S_dev_noMemory;
     }
     prec->dpvt = pcanMbboDirect;
-    pcanMbboDirect->prec = prec;
+    pcanMbboDirect->prec = (dbCommon *) prec;
     pcanMbboDirect->ioscanpvt = NULL;
     pcanMbboDirect->status = NO_ALARM;
 
@@ -141,7 +135,7 @@ LOCAL long init_mbboDirect (
 	    prec->pact = TRUE;
 	    return DO_NOT_CONVERT;
 	} else {
-	    recGblRecordError(S_can_badAddress, (void *) prec,
+	    recGblRecordError(S_can_badAddress, prec,
 			      "devMbboDirectCan (init_record) bad CAN address");
 	    return S_can_badAddress;
 	}
@@ -149,8 +143,8 @@ LOCAL long init_mbboDirect (
 
     #ifdef DEBUG
 	printf("canMbboDirect %s: Init bus=%s, id=%#x, off=%d, parm=%ld\n",
-		    prec->name, pcanMbboDirect->out.busName, pcanMbboDirect->out.identifier,
-		    pcanMbboDirect->out.offset, pcanMbboDirect->out.parameter);
+		prec->name, pcanMbboDirect->out.busName, pcanMbboDirect->out.identifier,
+		pcanMbboDirect->out.offset, pcanMbboDirect->out.parameter);
     #endif
 
     /* For mbboDirect records, the final parameter specifies the output bit shift,
@@ -166,43 +160,44 @@ LOCAL long init_mbboDirect (
     for (pbus = firstBus; pbus != NULL; pbus = pbus->nextBus) {
     	if (pbus->canBusID == pcanMbboDirect->out.canBusID) break;
     }
-    
+
     /* If not found, create one */
     if (pbus == NULL) {
-    	pbus = malloc(sizeof (mbboDirectCanBus_t));
-    	if (pbus == NULL) return S_dev_noMemory;
-    	
-    	/* Fill it in */
-    	pbus->firstPrivate = NULL;
-    	pbus->canBusID = pcanMbboDirect->out.canBusID;
-    	callbackSetCallback((void(*)()) busCallback, &pbus->callback);
-    	callbackSetPriority(priorityMedium, &pbus->callback);
-    	
-    	/* and add it to the list of busses we know about */
-    	pbus->nextBus = firstBus;
-    	firstBus = pbus;
-    	
-    	/* Ask driver for error signals */
-    	canSignal(pbus->canBusID, (canSigCallback_t *) busSignal, pbus);
+	pbus = malloc(sizeof (mbboDirectCanBus_t));
+	if (pbus == NULL) return S_dev_noMemory;
+
+	/* Fill it in */
+	pbus->firstPrivate = NULL;
+	pbus->canBusID = pcanMbboDirect->out.canBusID;
+	callbackSetUser(pbus, &pbus->callback);
+	callbackSetCallback(busCallback, &pbus->callback);
+	callbackSetPriority(priorityMedium, &pbus->callback);
+
+	/* and add it to the list of busses we know about */
+	pbus->nextBus = firstBus;
+	firstBus = pbus;
+
+	/* Ask driver for error signals */
+	canSignal(pbus->canBusID, busSignal, pbus);
     }
-    
+
     /* Insert private record structure into linked list for this CANbus */
     pcanMbboDirect->nextPrivate = pbus->firstPrivate;
     pbus->firstPrivate = pcanMbboDirect;
 
     /* Register the message handler with the Canbus driver */
-    canMessage(pcanMbboDirect->out.canBusID, pcanMbboDirect->out.identifier, 
-	       (canMsgCallback_t *) mbboDirectMessage, pcanMbboDirect);
+    canMessage(pcanMbboDirect->out.canBusID, pcanMbboDirect->out.identifier,
+		mbboDirectMessage, pcanMbboDirect);
 
     return DO_NOT_CONVERT;
 }
 
-LOCAL long get_ioint_info (
+static long get_ioint_info (
     int cmd,
     struct mbboDirectRecord *prec, 
     IOSCANPVT *ppvt
 ) {
-    mbboDirectCanPrivate_t *pcanMbboDirect = (mbboDirectCanPrivate_t *) prec->dpvt;
+    mbboDirectCanPrivate_t *pcanMbboDirect = prec->dpvt;
 
     if (pcanMbboDirect->ioscanpvt == NULL) {
 	scanIoInit(&pcanMbboDirect->ioscanpvt);
@@ -213,16 +208,16 @@ LOCAL long get_ioint_info (
     #endif
 
     *ppvt = pcanMbboDirect->ioscanpvt;
-    return OK;
+    return 0;
 }
 
-LOCAL long write_mbboDirect (
+static long write_mbboDirect (
     struct mbboDirectRecord *prec
 ) {
-    mbboDirectCanPrivate_t *pcanMbboDirect = (mbboDirectCanPrivate_t *) prec->dpvt;
+    mbboDirectCanPrivate_t *pcanMbboDirect = prec->dpvt;
 
     if (pcanMbboDirect->out.canBusID == NULL) {
-	return ERROR;
+	return -1;
     }
 
     #ifdef DEBUG
@@ -233,7 +228,7 @@ LOCAL long write_mbboDirect (
 	case COMM_ALARM:
 	    recGblSetSevr(prec, pcanMbboDirect->status, INVALID_ALARM);
 	    pcanMbboDirect->status = NO_ALARM;
-	    return ERROR;
+	    return -1;
 
 	case NO_ALARM:
 	    {
@@ -263,23 +258,25 @@ LOCAL long write_mbboDirect (
 		    #endif
 
 		    recGblSetSevr(prec, TIMEOUT_ALARM, INVALID_ALARM);
-		    return ERROR;
+		    return -1;
 		}
-		return OK;
+		return 0;
 	    }
 	default:
 	    recGblSetSevr(prec, UDF_ALARM, INVALID_ALARM);
 	    pcanMbboDirect->status = NO_ALARM;
-	    return ERROR;
+	    return -1;
     }
 }
 
-LOCAL void mbboDirectMessage (
-    mbboDirectCanPrivate_t *pcanMbboDirect,
-    canMessage_t *pmessage
+static void mbboDirectMessage (
+    void *private,
+    const canMessage_t *pmessage
 ) {
+    mbboDirectCanPrivate_t *pcanMbboDirect = private;
+
     if (!interruptAccept) return;
-    
+
     if (pcanMbboDirect->prec->scan == SCAN_IO_EVENT &&
 	pmessage->rtr == RTR) {
 	pcanMbboDirect->status = NO_ALARM;
@@ -287,46 +284,44 @@ LOCAL void mbboDirectMessage (
     }
 }
 
-LOCAL void busSignal (
-    mbboDirectCanBus_t *pbus,
+static void busSignal (
+    void *private,
     int status
 ) {
+    mbboDirectCanBus_t *pbus = private;
+
     if (!interruptAccept) return;
-    
+
     switch(status) {
 	case CAN_BUS_OK:
-#if DOMESSAGES
-            epicsInterruptContextMessage("devMbboDirectCan: Bus Ok event");
-#endif
 	    pbus->status = NO_ALARM;
 	    break;
 	case CAN_BUS_ERROR:
-#if DOMESSAGES
-            epicsInterruptContextMessage("devMbboDirectCan: Bus Error event");
-#endif
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;
 	case CAN_BUS_OFF:
-#if DOMESSAGES
-            epicsInterruptContextMessage("devMbboDirectCan: Bus Off event");
-#endif
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;
     }
 }
 
-LOCAL void busCallback (
-    mbboDirectCanBus_t *pbus
+static void busCallback (
+    CALLBACK *pCallback
 ) {
-    mbboDirectCanPrivate_t *pcanMbboDirect = pbus->firstPrivate;
-    
+    mbboDirectCanBus_t *pbus;
+    mbboDirectCanPrivate_t *pcanMbboDirect;
+
+    callbackGetUser(pbus, pCallback);
+    pcanMbboDirect = pbus->firstPrivate;
+
     while (pcanMbboDirect != NULL) {
+	dbCommon *prec = pcanMbboDirect->prec;
 	pcanMbboDirect->status = pbus->status;
-	dbScanLock((struct dbCommon *) pcanMbboDirect->prec);
-	(*((struct rset *) pcanMbboDirect->prec->rset)->process)(pcanMbboDirect->prec);
-	dbScanUnlock((struct dbCommon *) pcanMbboDirect->prec);
+	dbScanLock(prec);
+	prec->rset->process(prec);
+	dbScanUnlock(prec);
 	pcanMbboDirect = pcanMbboDirect->nextPrivate;
     }
 }

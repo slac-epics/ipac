@@ -16,8 +16,9 @@ HTMLS += logo101.gif
 HTMLS += drvIpac.html
 HTMLS += ipacRelease.html
 
-LIBRARY_IOC_RTEMS   = Ipac
-LIBRARY_IOC_vxWorks = Ipac
+#LIBRARY_IOC_RTEMS   = Ipac
+#LIBRARY_IOC_vxWorks = Ipac
+LIBRARY_IOC = Ipac
 
 # Disable hotswap option in drvHy8002.c
 USR_CFLAGS += -Wshadow -Wpointer-arith -Wbad-function-cast -Wno-unused

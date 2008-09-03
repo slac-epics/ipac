@@ -1,7 +1,7 @@
 /*******************************************************************************
 
 Project:
-    CAN Bus Driver for EPICS
+    IndustryPack Driver Interface for EPICS
 
 File:
     drvIpac.h
@@ -16,9 +16,9 @@ Author:
 Created:
     1 July 1995
 Version:
-    drvIpac.h,v 1.6 2003/11/04 21:35:11 anj Exp
+    drvIpac.h,v 1.11 2007/08/20 21:16:21 anj Exp
 
-Copyright (c) 1995-2000 Andrew Johnson
+Copyright (c) 1995-2007 Andrew Johnson
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -40,11 +40,27 @@ Copyright (c) 1995-2000 Andrew Johnson
 #ifndef INCdrvIpacH
 #define INCdrvIpacH
 
-#include <sys/types.h>
-
-#ifndef NO_EPICS
+#include <epicsTypes.h>
 #include <errMdef.h>
+
+/* These types are being defined here for compatibility reasons - in vxWorks
+ * they are standard types, replacing them with OSI versions would break the
+ * IPAC carrier drivers that are outside of the drvIpac distribution.  They
+ * are #defined to use explicitly-sized types from epicsTypes.h instead (we
+ * can't use a typedef because that could fail on vxWorks).
+ */
+#ifndef uchar_t
+#define uchar_t epicsUInt8
 #endif
+
+#ifndef ushort_t
+#define ushort_t epicsUInt16
+#endif
+
+#ifndef ulong_t
+#define ulong_t epicsUInt32
+#endif
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -66,7 +82,7 @@ extern "C" {
 #define S_IPAC_badAddress   (M_ipac| 3) /*Bad IPAC carrier or slot number*/
 #define S_IPAC_badDriver    (M_ipac| 4) /*Bad value from IPAC carrier driver*/
 #define S_IPAC_noModule     (M_ipac| 5) /*No IP module installed*/
-#define S_IPAC_noIpacId     (M_ipac| 6) /*IPAC identifier not found*/
+#define S_IPAC_noIpacId     (M_ipac| 6) /*IPAC/VITA4 identifier not found*/
 #define S_IPAC_badCRC       (M_ipac| 7) /*IPAC CRC Check failed*/
 #define S_IPAC_badModule    (M_ipac| 8) /*IPAC Manufacturer or model ID wrong*/
 #define S_IPAC_notImplemented (M_ipac| 9) /*IPAC Driver command not available*/
@@ -81,23 +97,41 @@ extern "C" {
 #define IPAC_REPORT_LEN	256
 
 
-/* Structure of the IPAC ID Prom, located in the pack ID space. */
+/* Structure of the IPAC ID Prom, located in the pack ID space.
+ */
 
 typedef volatile struct {
-    unsigned short asciiI;
-    unsigned short asciiP;
-    unsigned short asciiA;
-    unsigned short asciiC;
-    unsigned short manufacturerId;
-    unsigned short modelId;
-    unsigned short revision;
-    unsigned short reserved;
-    unsigned short driverIdLow;
-    unsigned short driverIdHigh;
-    unsigned short bytesUsed;
-    unsigned short CRC;
-    unsigned short packSpecific[52];
+    epicsUInt16 asciiI;
+    epicsUInt16 asciiP;
+    epicsUInt16 asciiA;
+    epicsUInt16 asciiC;
+    epicsUInt16 manufacturerId;
+    epicsUInt16 modelId;
+    epicsUInt16 revision;
+    epicsUInt16 reserved;
+    epicsUInt16 driverIdLow;
+    epicsUInt16 driverIdHigh;
+    epicsUInt16 bytesUsed;
+    epicsUInt16 CRC;
+    epicsUInt16 packSpecific[52];
 } ipac_idProm_t;
+
+typedef volatile struct {
+    epicsUInt16 asciiVI;
+    epicsUInt16 asciiTA;
+    epicsUInt16 ascii4_;
+    epicsUInt16 manufacturerIdHigh;
+    epicsUInt16 manufacturerIdLow;
+    epicsUInt16 modelId;
+    epicsUInt16 revision;
+    epicsUInt16 reserved;
+    epicsUInt16 driverIdLow;
+    epicsUInt16 driverIdHigh;
+    epicsUInt16 flags;
+    epicsUInt16 bytesUsed;
+    epicsUInt16 CRC;
+    epicsUInt16 packSpecific[51];
+} ipac_idProm2_t;
 
 
 /* These are the types of address space implemented in the IP
@@ -152,18 +186,18 @@ typedef enum {
 typedef struct {
     char *carrierType;
 			/* String containing carrier board type */
-    unsigned short numberSlots;
+    ushort_t numberSlots;
 			/* Number of IPAC devices this carrier can hold */
-    int (*initialise)(const char *cardParms, void **cPrivate, unsigned short carrier);
+    int (*initialise)(const char *cardParms, void **cPrivate, ushort_t carrier);
 			/* Initialise carrier and return *cPrivate */
-    char *(*report)(void *cPrivate, unsigned short slot);
-			/* Return string with giving status of this slot */
-    void *(*baseAddr)(void *cPrivate, unsigned short slot, ipac_addr_t space);
+    char *(*report)(void *cPrivate, ushort_t slot);
+			/* Return string giving status of this slot */
+    void *(*baseAddr)(void *cPrivate, ushort_t slot, ipac_addr_t space);
 			/* Return base addresses for this slot */
-    int (*irqCmd)(void *cPrivate, unsigned short slot, 
-		unsigned short irqNumber, ipac_irqCmd_t cmd);
+    int (*irqCmd)(void *cPrivate, ushort_t slot, 
+		ushort_t irqNumber, ipac_irqCmd_t cmd);
 			/* Interrupt manipulation */
-    int (*intConnect)(void *cPrivate, unsigned short slot, unsigned short vecNum, 
+    int (*intConnect)(void *cPrivate, ushort_t slot, ushort_t vecNum, 
 		void (*routine)(int parameter), int parameter);
 			/* Connect routine to interrupt vector */
 } ipac_carrier_t;
@@ -173,19 +207,18 @@ typedef struct {
 
 extern int ipacAddCarrier(ipac_carrier_t *pcarrier, const char *cardParams);
 extern int ipacReport(int interest);
-extern int ipacInitialise(int after);
 
 
 /* Functions for use in IPAC module drivers */
 
-extern int ipmCheck(unsigned short carrier, unsigned short slot);
-extern int ipmValidate(unsigned short carrier, unsigned short slot,
-		unsigned char manufacturerId, const unsigned char modelId);
-extern char *ipmReport(unsigned short carrier, unsigned short slot);
-extern void *ipmBaseAddr(unsigned short carrier, unsigned short slot, ipac_addr_t space);
-extern int ipmIrqCmd(unsigned short carrier, unsigned short slot, 
-		unsigned short irqNumber, ipac_irqCmd_t cmd);
-extern int ipmIntConnect(unsigned short carrier, unsigned short slot, unsigned short vector, 
+extern int ipmCheck(int carrier, int slot);
+extern int ipmValidate(int carrier, int slot,
+		int manufacturerId, int modelId);
+extern char *ipmReport(int carrier, int slot);
+extern void *ipmBaseAddr(int carrier, int slot, ipac_addr_t space);
+extern int ipmIrqCmd(int carrier, int slot, 
+		int irqNumber, ipac_irqCmd_t cmd);
+extern int ipmIntConnect(int carrier, int slot, int vector, 
 		void (*routine)(int parameter), int parameter);
 
 
