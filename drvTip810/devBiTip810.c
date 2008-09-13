@@ -13,7 +13,7 @@ Author:
 Created:
     3 April 1997
 Version:
-    devBiTip810.c,v 1.10 2007/05/25 19:42:14 anj Exp
+    devBiTip810.c,v 1.8 2003/10/29 20:46:30 anj Exp
 
 Copyright (c) 1995-2000 Andrew Johnson
 
@@ -33,28 +33,27 @@ Copyright (c) 1995-2000 Andrew Johnson
 
 *******************************************************************************/
 
-#include <stdlib.h>
+#include <vxWorks.h>
 #include <string.h>
 #include <ctype.h>
 
-#include <dbDefs.h>
-#include <dbAccess.h>
-#include <recSup.h>
-#include <recGbl.h>
-#include <alarm.h>
-#include <devSup.h>
-#include <devLib.h>
-#include <biRecord.h>
-#include <epicsExport.h>
-
+#include "dbDefs.h"
+#include "dbAccess.h"
+#include "recSup.h"
+#include "recGbl.h"
+#include "alarm.h"
+#include "devSup.h"
+#include "devLib.h"
+#include "biRecord.h"
 #include "canBus.h"
 #include "drvTip810.h"
 #include "pca82c200.h"
+#include "epicsExport.h"
 
 
 /* Create the dset for devBiTip810 */
-static long init_bi(struct biRecord *prec);
-static long read_bi(struct biRecord *prec);
+LOCAL long init_bi(struct biRecord *prec);
+LOCAL long read_bi(struct biRecord *prec);
 
 struct {
 	long		number;
@@ -72,8 +71,8 @@ struct {
 	read_bi
 };
 epicsExportAddress(dset, devBiTip810);
-
-static long init_bi(
+
+LOCAL long init_bi(
     struct biRecord *prec
 ) {
     static struct {
@@ -88,13 +87,12 @@ static long init_bi(
 	{ "SENDING",	PCA_SR_TS },
 	{ "SENT", 	PCA_SR_TCS },
 	{ "OK_TO_SEND",	PCA_SR_TBS },
-	{ NULL,		0 }
+	{ NULL,		NULL }
     };
 
     char *canString;
     char *name;
     char separator;
-    canBusID_t busID;
     int i;
     long status;
 
@@ -104,7 +102,7 @@ static long init_bi(
     canString = ((struct instio *)&(prec->inp.value))->string;
 
     /* Strip leading whitespace & non-alphanumeric chars */
-    while (!isalnum(0xff & *canString)) {
+    while (!isalnum(*canString)) {
 	if (*canString++ == '\0') goto error;
     }
 
@@ -118,7 +116,7 @@ static long init_bi(
     /* Temporarily truncate string after name and look up t810 device */
     separator = *canString;
     *canString = '\0';
-    status = canOpen(name, &busID);
+    status = canOpen(name, &prec->dpvt);
     *canString++ = separator;
     if (status) goto error;
 
@@ -126,31 +124,33 @@ static long init_bi(
     prec->mask=0;
     for (i=0; tipState[i].string != NULL; i++)
 	if (strcmp(canString, tipState[i].string) == 0)
-	    prec->mask = tipState[i].mask;
+	    prec->mask=tipState[i].mask;
 
-    if (prec->mask) {
-	prec->dpvt = busID;
-	return 0;
+    if (prec->mask == 0) {
+        goto error;
     }
+    return 0;
 
 error:
     if (canSilenceErrors) {
-	prec->pact = TRUE;
-	return 0;
+    	prec->dpvt = NULL;
+    	prec->pact = TRUE;
+    	return OK;
     } else {
-	recGblRecordError(S_db_badField,(void *)prec,
+    	recGblRecordError(S_db_badField,(void *)prec,
 			  "devBiTip810: Bad INP field type or value");
-	return S_db_badField;
+    	return S_db_badField;
     }
 }
 
-static long read_bi(struct biRecord *prec)
+LOCAL long read_bi(struct biRecord *prec)
 {
-    if (prec->dpvt == NULL || prec->mask == 0) {
-	prec->pact = TRUE;
-	return S_dev_noDevice;
-    }
+	if (prec->dpvt == NULL || prec->mask == 0) {
+	    prec->pact = TRUE;
+	    return S_dev_noDevice;
+	}
 
-    prec->rval = t810Status((canBusID_t) prec->dpvt) & prec->mask;
-    return 0;
+	prec->rval = t810Status(prec->dpvt) & prec->mask;
+	return 0;
 }
+

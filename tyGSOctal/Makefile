@@ -8,11 +8,9 @@ HTMLS += tyGSOctalRelease.html
 
 DBD += tyGSOctal.dbd
 
-LIBSRCS_vxWorks += tyGSOctal.c
-LIBSRCS_RTEMS += tyGSOctal_RTEMS.c
+LIBSRCS += tyGSOctal.c
 
 LIBRARY_IOC_vxWorks = TyGSOctal
-LIBRARY_IOC_RTEMS = TyGSOctal
 TyGSOctal_LIBS += Ipac
 
 include $(TOP)/configure/RULES

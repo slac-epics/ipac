@@ -22,7 +22,7 @@ Author:
 Created:
     10 December 2004
 Version:
-    drvTvme200.c,v 1.3 2007/05/25 20:33:46 anj Exp
+    drvTvme200.c,v 1.1 2004/12/15 23:19:19 anj Exp
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -38,21 +38,19 @@ Version:
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
-Modifications:
-   24-Apr-2006  Wayne Lewis   Added devLib code for non-vxWorks systems
-
 *******************************************************************************/
 
+#include <vxWorks.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
-#include <devLib.h>
-#include <epicsThread.h>
-#include <epicsExport.h>
-#include <iocsh.h>
+#include <vme.h>
+#include <taskLib.h>
+#include <sysLib.h>
 
 #include "drvIpac.h"
+#include "epicsExport.h"
+#include "iocsh.h"
 
 
 /* Characteristics of the card */
@@ -61,7 +59,6 @@ Modifications:
 #define IO_SPACES 2	/* Address spaces in A16 */
 #define IPAC_IRQS 2	/* Interrupts per module */
 #define SETTINGS 5	/* Defined S3 positions */
-#define EXTENT 0x400	/* Register size in A16 */
 
 /* Offsets from base address in VME A16 space */
 
@@ -167,8 +164,7 @@ LOCAL int initialise (
 ) {
     int s3, s4, mAM;
     ulong_t switches, ioBase, mSize, mBase;
-    volatile void *ptr;
-    int space, slot;
+    ushort_t space, slot;
     private_t *settings;
 
     if (cardParams == NULL ||
@@ -184,9 +180,8 @@ LOCAL int initialise (
     if ((ioBase & 0x0300) || s3 >= SETTINGS)
 	return S_IPAC_badAddress;
 
-    if (devRegisterAddress("TVME200", atVMEA16, ioBase, EXTENT, &ptr))
+    if (sysBusToLocalAdrs(VME_AM_SUP_SHORT_IO, (char *) ioBase, (char **) &ioBase))
 	return S_IPAC_badAddress;
-    ioBase = (ulong_t) ptr;
 
     for (slot = 0; slot < SLOTS; slot++) {
 	ctrl_t *ctrl = (ctrl_t *) (ioBase + tvmeCtrls[slot]);
@@ -209,28 +204,27 @@ LOCAL int initialise (
     case 1: case 2: case 3: case 4: case 5: case 6: case 7:
 	/* A24, variable size per module */
 	mSize = 16384 << s4;	/* Calculate size: 1=32KB, 2=64KB, ... */
-	mAM = atVMEA24;
+	mAM = VME_AM_STD_SUP_DATA;
 	break;
 	
     case 0xf:
 	/* A32, 8MB allocated per module */
 	mSize = 8 << 20;	/* 8MB */
 	mBase <<= 8;
-	mAM = atVMEA32;
+	mAM = VME_AM_EXT_SUP_DATA;
 	break;
 	
     default:
 	return S_IPAC_badAddress;
     }
 
-    if (mSize &&
-	(((mSize * SLOTS - 1) & mBase) || 	/* address must match size */
-	devRegisterAddress("TVME200", mAM, mBase, mSize * SLOTS,  &ptr))) {
-	return S_IPAC_badAddress;
+    if (mSize) {
+	if (sysBusToLocalAdrs(mAM, (char *) mBase, (char **) &mBase) ||
+	    ((mSize * SLOTS - 1) & mBase))	/* address must match size */
+	    return S_IPAC_badAddress;
     }
-    mBase = (ulong_t) ptr;
 
-    settings = (private_t *)malloc(sizeof (private_t));
+    settings = malloc(sizeof (private_t));
     if (!settings)
 	return S_IPAC_noMemory;
 
@@ -365,7 +359,7 @@ LOCAL int irqCmd (
 	    return (ctrl->irqLevel >> iShift) & 7;
 
 	case ipac_irqEnable:
-	    devEnableInterruptLevel(intVME, (ctrl->irqLevel >> iShift) & 7);
+	    sysIntEnable((ctrl->irqLevel >> iShift) & 7);
 	    return OK;
 
 	case ipac_irqPoll:
@@ -374,7 +368,7 @@ LOCAL int irqCmd (
 	case ipac_slotReset:
 	    ctrl->control = 0x80;
 	    while (ctrl->control & 0x80)
-		epicsThreadSleep(0.05);
+		taskDelay(1);
 	    return OK;
 
 	default:

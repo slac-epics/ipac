@@ -19,8 +19,6 @@
 #ifndef INC_TYGSOCTAL_H
 #define INC_TYGSOCTAL_H
 
-#include "scc2698.h"
-
 enum { MAX_SPIN_TIME=2 };
 typedef enum { RS485,RS232 } RSmode;
 
@@ -35,22 +33,19 @@ typedef struct ty_gsoctal_dev {
     RSmode          mode;
     int             baud;
     int             opts;
-    epicsUInt8      imr;
-    unsigned long   readCharCount;
-    unsigned long   writeCharCount;
+    UCHAR           imr;
 } TY_GSOCTAL_DEV;
 
 typedef struct quadTable {
-    const char    *moduleID;
+    const char *moduleID;
     TY_GSOCTAL_DEV port[8];             /* one per port */
-    int            modelID;
-    epicsUInt16    carrier;
-    epicsUInt16    module;
-    epicsUInt8     imr[4];			/* one per block */
-    unsigned long  interruptCount;
+    int modelID;
+    ushort_t carrier;
+    ushort_t module;
+    UCHAR imr[4];			/* one per block */
 } QUAD_TABLE;
 
-int tyGSOctalDrv(int);
+STATUS tyGSOctalDrv(int);
 int tyGSOctalModuleInit(const char *, const char *, int, int, int);
 const char *tyGSOctalDevCreate(char *, const char *, int, int, int);
 void tyGSOctalConfig(char *, int, char, int, int, char);

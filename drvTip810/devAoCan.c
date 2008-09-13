@@ -14,7 +14,7 @@ Author:
 Created:
     9 August 1995
 Version:
-    devAoCan.c,v 1.15 2007/05/25 19:42:13 anj Exp
+    devAoCan.c,v 1.13 2003/10/29 20:46:29 anj Exp
 
 Copyright (c) 1995-2000 Andrew Johnson
 
@@ -35,30 +35,30 @@ Copyright (c) 1995-2000 Andrew Johnson
 *******************************************************************************/
 
 
+#include <vxWorks.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <float.h>
+#include <wdLib.h>
+#include <logLib.h>
 
-#include <errMdef.h>
-#include <devLib.h>
-#include <dbAccess.h>
-#include <dbScan.h>
-#include <callback.h>
-#include <cvtTable.h>
-#include <link.h>
-#include <alarm.h>
-#include <recGbl.h>
-#include <recSup.h>
-#include <devSup.h>
-#include <dbCommon.h>
-#include <aoRecord.h>
-#include <menuConvert.h>
-#include <epicsExport.h>
-
+#include "errMdef.h"
+#include "devLib.h"
+#include "dbAccess.h"
+#include "dbScan.h"
+#include "callback.h"
+#include "cvtTable.h"
+#include "link.h"
+#include "alarm.h"
+#include "recGbl.h"
+#include "recSup.h"
+#include "devSup.h"
+#include "dbCommon.h"
+#include "aoRecord.h"
 #include "canBus.h"
-
+#include "epicsExport.h"
 
 #define DO_NOT_CONVERT	2
 
@@ -66,29 +66,29 @@ Copyright (c) 1995-2000 Andrew Johnson
 typedef struct aoCanPrivate_s {
     struct aoCanPrivate_s *nextPrivate;
     IOSCANPVT ioscanpvt;
-    dbCommon *prec;
+    struct aoRecord *prec;
     canIo_t out;
-    epicsUInt32 mask;
-    epicsUInt32 sign;
-    epicsUInt32 data;
+    ulong_t mask;
+    ulong_t sign;
+    long data;
     int status;
 } aoCanPrivate_t;
 
 typedef struct aoCanBus_s {
-    CALLBACK callback;
+    CALLBACK callback;		/* This *must* be first member */
     struct aoCanBus_s *nextBus;
     aoCanPrivate_t *firstPrivate;
     void *canBusID;
     int status;
 } aoCanBus_t;
 
-static long init_ao(struct aoRecord *prec);
-static long get_ioint_info(int cmd, struct aoRecord *prec, IOSCANPVT *ppvt);
-static long write_ao(struct aoRecord *prec);
-static long special_linconv(struct aoRecord *prec, int after);
-static void aoMessage(void *private, const canMessage_t *pmessage);
-static void busSignal(void *private, int status);
-static void busCallback(CALLBACK *pCallback);
+LOCAL long init_ao(struct aoRecord *prec);
+LOCAL long get_ioint_info(int cmd, struct aoRecord *prec, IOSCANPVT *ppvt);
+LOCAL long write_ao(struct aoRecord *prec);
+LOCAL long special_linconv(struct aoRecord *prec, int after);
+LOCAL void aoMessage(aoCanPrivate_t *pcanAo, canMessage_t *pmessage);
+LOCAL void busSignal(aoCanBus_t *pbus, int status);
+LOCAL void busCallback(aoCanBus_t *pbus);
 
 struct {
     long number;
@@ -109,29 +109,29 @@ struct {
 };
 epicsExportAddress(dset, devAoCan);
 
-static aoCanBus_t *firstBus;
+LOCAL aoCanBus_t *firstBus;
 
 
-static long init_ao (
+LOCAL long init_ao (
     struct aoRecord *prec
 ) {
     aoCanPrivate_t *pcanAo;
     aoCanBus_t *pbus;
     int status;
-    epicsUInt32 fsd;
+    ulong_t fsd;
 
     if (prec->out.type != INST_IO) {
-	recGblRecordError(S_db_badField, prec,
+	recGblRecordError(S_db_badField, (void *) prec,
 			  "devAoCan (init_record) Illegal OUT field");
 	return S_db_badField;
     }
 
-    pcanAo = malloc(sizeof(aoCanPrivate_t));
+    pcanAo = (aoCanPrivate_t *) malloc(sizeof(aoCanPrivate_t));
     if (pcanAo == NULL) {
 	return S_dev_noMemory;
     }
     prec->dpvt = pcanAo;
-    pcanAo->prec = (dbCommon *) prec;
+    pcanAo->prec = prec;
     pcanAo->ioscanpvt = NULL;
     pcanAo->status = NO_ALARM;
 
@@ -143,7 +143,7 @@ static long init_ao (
 	    prec->pact = TRUE;
 	    return DO_NOT_CONVERT;
 	} else {
-	    recGblRecordError(S_can_badAddress, prec,
+	    recGblRecordError(S_can_badAddress, (void *) prec,
 			      "devAoCan (init_record) bad CAN address");
 	    return S_can_badAddress;
 	}
@@ -159,7 +159,7 @@ static long init_ao (
        eg 0xfff or 0x1000 specify a 12-bit unsigned value.  -ve numbers
        specify a signed value, eg -256 means an 8-bit signed value.
        The range does not have to be a power of two, eg 99 is legal. */
-
+    
     fsd = abs(pcanAo->out.parameter);
     if (fsd > 0) {
 	if ((fsd & (fsd-1)) == 0) {
@@ -179,7 +179,7 @@ static long init_ao (
 	} else {
 	    pcanAo->sign = 0;
 	}
-	if (prec->linr == menuConvertLINEAR) {
+	if (prec->linr == 1) {
 	    prec->roff = pcanAo->sign;
 	    prec->eslo = (prec->eguf - prec->egul) / fsd;
 	} else {
@@ -205,43 +205,43 @@ static long init_ao (
     for (pbus = firstBus; pbus != NULL; pbus = pbus->nextBus) {
     	if (pbus->canBusID == pcanAo->out.canBusID) break;
     }
-
+    
     /* If not found, create one */
     if (pbus == NULL) {
-	pbus = malloc(sizeof (aoCanBus_t));
-	if (pbus == NULL) return S_dev_noMemory;
-
-	/* Fill it in */
-	pbus->firstPrivate = NULL;
-	pbus->canBusID = pcanAo->out.canBusID;
-	callbackSetUser(pbus, &pbus->callback);
-	callbackSetCallback(busCallback, &pbus->callback);
-	callbackSetPriority(priorityMedium, &pbus->callback);
-
-	/* and add it to the list of busses we know about */
-	pbus->nextBus = firstBus;
-	firstBus = pbus;
-
-	/* Ask driver for error signals */
-	canSignal(pbus->canBusID, busSignal, pbus);
+    	pbus = malloc(sizeof (aoCanBus_t));
+    	if (pbus == NULL) return S_dev_noMemory;
+    	
+    	/* Fill it in */
+    	pbus->firstPrivate = NULL;
+    	pbus->canBusID = pcanAo->out.canBusID;
+    	callbackSetCallback((VOIDFUNCPTR) busCallback, &pbus->callback);
+    	callbackSetPriority(priorityMedium, &pbus->callback);
+    	
+    	/* and add it to the list of busses we know about */
+    	pbus->nextBus = firstBus;
+    	firstBus = pbus;
+    	
+    	/* Ask driver for error signals */
+    	canSignal(pbus->canBusID, (canSigCallback_t *) busSignal, pbus);
     }
-
+    
     /* Insert private record structure into linked list for this CANbus */
     pcanAo->nextPrivate = pbus->firstPrivate;
     pbus->firstPrivate = pcanAo;
 
     /* Register the message handler with the Canbus driver */
-    canMessage(pcanAo->out.canBusID, pcanAo->out.identifier, aoMessage, pcanAo);
+    canMessage(pcanAo->out.canBusID, pcanAo->out.identifier, 
+	       (canMsgCallback_t *) aoMessage, pcanAo);
 
     return DO_NOT_CONVERT;
 }
 
-static long get_ioint_info (
+LOCAL long get_ioint_info (
     int cmd,
     struct aoRecord *prec, 
     IOSCANPVT *ppvt
 ) {
-    aoCanPrivate_t *pcanAo = prec->dpvt;
+    aoCanPrivate_t *pcanAo = (aoCanPrivate_t *) prec->dpvt;
 
     if (pcanAo->ioscanpvt == NULL) {
 	scanIoInit(&pcanAo->ioscanpvt);
@@ -252,16 +252,16 @@ static long get_ioint_info (
     #endif
 
     *ppvt = pcanAo->ioscanpvt;
-    return 0;
+    return OK;
 }
 
-static long write_ao (
+LOCAL long write_ao (
     struct aoRecord *prec
 ) {
-    aoCanPrivate_t *pcanAo = prec->dpvt;
+    aoCanPrivate_t *pcanAo = (aoCanPrivate_t *) prec->dpvt;
 
     if (pcanAo->out.canBusID == NULL) {
-	return -1;
+	return ERROR;
     }
 
     #ifdef DEBUG
@@ -272,7 +272,7 @@ static long write_ao (
 	case COMM_ALARM:
 	    recGblSetSevr(prec, pcanAo->status, INVALID_ALARM);
 	    pcanAo->status = NO_ALARM;
-	    return -1;
+	    return ERROR;
 
 	case NO_ALARM:
 	    {
@@ -285,25 +285,25 @@ static long write_ao (
 		pcanAo->data = prec->rval & pcanAo->mask;
 
 		if (pcanAo->mask == 0) {
-		    /* FIXME: These have endian problems... */
 		    float oval;
 		    message.length = pcanAo->sign;
 		    switch (message.length) {
 		    case 4:	/* float */
+		        
 			if (fabs(prec->oval) < FLT_MIN) {
 			    oval = 0.0;
 			} else if (fabs (prec->oval) > FLT_MAX) {
 			    recGblSetSevr(prec, WRITE_ALARM, INVALID_ALARM);
-			    return -1;
+			    return ERROR;
 			} else {
 			    oval = prec->oval;
 			}
-			memcpy(&message.data[0], &oval, sizeof(float));
+			memcpy((void*) &message.data[0], (void*) &oval, 4);
 			break;
 		    case 8:	/* double */
-		        memcpy(&message.data[0], &prec->oval, sizeof(double));
+		        memcpy((void*) &message.data[0], (void*) &prec->oval, 8);
 			break;
-		    default:
+		    default:	/* length = 0 */
 		        break;
 		    }
 		} else if (pcanAo->mask <= 0xff) {
@@ -341,25 +341,25 @@ static long write_ao (
 		    #endif
 
 		    recGblSetSevr(prec, TIMEOUT_ALARM, INVALID_ALARM);
-		    return -1;
+		    return ERROR;
 		}
-		return 0;
+		return OK;
 	    }
 	default:
 	    recGblSetSevr(prec, UDF_ALARM, INVALID_ALARM);
 	    pcanAo->status = NO_ALARM;
-	    return -1;
+	    return ERROR;
     }
 }
 
-static long special_linconv (
+LOCAL long special_linconv (
     struct aoRecord *prec,
     int after
 ) {
     if (after) {
-	if (prec->linr == menuConvertLINEAR) {
-	    epicsUInt32 fsd;
-	    aoCanPrivate_t *pcanAo = prec->dpvt;
+	if (prec->linr == 1) {
+	    ulong_t fsd;
+	    aoCanPrivate_t *pcanAo = (aoCanPrivate_t *) prec->dpvt;
 	    fsd = abs(pcanAo->out.parameter);
 	    if (fsd > 0) {
 		if ((fsd & (fsd-1)) == 0) {
@@ -376,14 +376,12 @@ static long special_linconv (
     return 0;
 }
 
-static void aoMessage (
-    void *private,
-    const canMessage_t *pmessage
+LOCAL void aoMessage (
+    aoCanPrivate_t *pcanAo,
+    canMessage_t *pmessage
 ) {
-    aoCanPrivate_t *pcanAo = private;
-
     if (!interruptAccept) return;
-
+    
     if (pcanAo->prec->scan == SCAN_IO_EVENT &&
 	pmessage->rtr == RTR) {
 	pcanAo->status = NO_ALARM;
@@ -391,44 +389,43 @@ static void aoMessage (
     }
 }
 
-static void busSignal (
-    void *private,
+LOCAL void busSignal (
+    aoCanBus_t *pbus,
     int status
 ) {
-    aoCanBus_t *pbus = private;
-
     if (!interruptAccept) return;
-
+    
     switch(status) {
 	case CAN_BUS_OK:
-	    pbus->status = NO_ALARM;
+	    logMsg("devAoCan: Bus Ok event from %s\n",
+	    	   (int) pbus->firstPrivate->out.busName, 0, 0, 0, 0, 0);
+		pbus->status = NO_ALARM;
 	    break;
 	case CAN_BUS_ERROR:
+	    logMsg("devAoCan: Bus Error event from %s\n",
+	    	   (int) pbus->firstPrivate->out.busName, 0, 0, 0, 0, 0);
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;
 	case CAN_BUS_OFF:
+	    logMsg("devAoCan: Bus Off event from %s\n",
+	    	   (int) pbus->firstPrivate->out.busName, 0, 0, 0, 0, 0);
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;
     }
 }
 
-static void busCallback (
-    CALLBACK *pCallback
+LOCAL void busCallback (
+    aoCanBus_t *pbus
 ) {
-    aoCanBus_t *pbus;
-    aoCanPrivate_t *pcanAo;
-
-    callbackGetUser(pbus, pCallback);
-    pcanAo = pbus->firstPrivate;
-
+    aoCanPrivate_t *pcanAo = pbus->firstPrivate;
+    
     while (pcanAo != NULL) {
-	dbCommon *prec = pcanAo->prec;
 	pcanAo->status = pbus->status;
-	dbScanLock(prec);
-	prec->rset->process(prec);
-	dbScanUnlock(prec);
+	dbScanLock((struct dbCommon *) pcanAo->prec);
+	(*((struct rset *) pcanAo->prec->rset)->process)(pcanAo->prec);
+	dbScanUnlock((struct dbCommon *) pcanAo->prec);
 	pcanAo = pcanAo->nextPrivate;
     }
 }

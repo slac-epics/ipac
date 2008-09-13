@@ -14,7 +14,7 @@ Author:
 Created:
     14 August 1995
 Version:
-    devBiCan.c,v 1.16 2007/05/25 19:42:13 anj Exp
+    devBiCan.c,v 1.15 2003/10/29 20:46:30 anj Exp
 
 Copyright (c) 1995-2000 Andrew Johnson
 
@@ -35,25 +35,27 @@ Copyright (c) 1995-2000 Andrew Johnson
 *******************************************************************************/
 
 
+#include <vxWorks.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <wdLib.h>
+#include <logLib.h>
 
-#include <errMdef.h>
-#include <devLib.h>
-#include <dbAccess.h>
-#include <dbScan.h>
-#include <callback.h>
-#include <cvtTable.h>
-#include <link.h>
-#include <alarm.h>
-#include <recGbl.h>
-#include <recSup.h>
-#include <devSup.h>
-#include <dbCommon.h>
-#include <biRecord.h>
-#include <epicsExport.h>
-
+#include "errMdef.h"
+#include "devLib.h"
+#include "dbAccess.h"
+#include "dbScan.h"
+#include "callback.h"
+#include "cvtTable.h"
+#include "link.h"
+#include "alarm.h"
+#include "recGbl.h"
+#include "recSup.h"
+#include "devSup.h"
+#include "dbCommon.h"
+#include "biRecord.h"
 #include "canBus.h"
+#include "epicsExport.h"
 
 
 #define CONVERT 0
@@ -61,31 +63,31 @@ Copyright (c) 1995-2000 Andrew Johnson
 
 
 typedef struct biCanPrivate_s {
-    CALLBACK callback;
+    CALLBACK callback;		/* This *must* be first member */
     struct biCanPrivate_s *nextPrivate;
-    epicsTimerId timId;
+    WDOG_ID wdId;
     IOSCANPVT ioscanpvt;
-    struct dbCommon *prec;
+    struct biRecord *prec;
     canIo_t inp;
-    epicsUInt32 data;
+    long data;
     int status;
 } biCanPrivate_t;
 
 typedef struct biCanBus_s {
-    CALLBACK callback;
+    CALLBACK callback;		/* This *must* be first member */
     struct biCanBus_s *nextBus;
     biCanPrivate_t *firstPrivate;
     void *canBusID;
     int status;
 } biCanBus_t;
 
-static long init_bi(struct biRecord *prec);
-static long get_ioint_info(int cmd, struct biRecord *prec, IOSCANPVT *ppvt);
-static long read_bi(struct biRecord *prec);
-static void ProcessCallback(CALLBACK *pcallback);
-static void biMessage(void *private, const canMessage_t *pmessage);
-static void busSignal(void *private, int status);
-static void busCallback(CALLBACK *pcallback);
+LOCAL long init_bi(struct biRecord *prec);
+LOCAL long get_ioint_info(int cmd, struct biRecord *prec, IOSCANPVT *ppvt);
+LOCAL long read_bi(struct biRecord *prec);
+LOCAL void biProcess(biCanPrivate_t *pcanBi);
+LOCAL void biMessage(biCanPrivate_t *pcanBi, canMessage_t *pmessage);
+LOCAL void busSignal(biCanBus_t *pbus, int status);
+LOCAL void busCallback(biCanBus_t *pbus);
 
 struct {
     long number;
@@ -104,28 +106,28 @@ struct {
 };
 epicsExportAddress(dset, devBiCan);
 
-static biCanBus_t *firstBus;
+LOCAL biCanBus_t *firstBus;
 
 
-static long init_bi (
+LOCAL long init_bi (
     struct biRecord *prec
 ) {
     biCanPrivate_t *pcanBi;
     biCanBus_t *pbus;
     int status;
-
+    
     if (prec->inp.type != INST_IO) {
-	recGblRecordError(S_db_badField, prec,
+	recGblRecordError(S_db_badField, (void *) prec,
 			  "devBiCan (init_record) Illegal INP field");
 	return S_db_badField;
     }
 
-    pcanBi = malloc(sizeof(biCanPrivate_t));
+    pcanBi = (biCanPrivate_t *) malloc(sizeof(biCanPrivate_t));
     if (pcanBi == NULL) {
 	return S_dev_noMemory;
     }
     prec->dpvt = pcanBi;
-    pcanBi->prec = (dbCommon *) prec;
+    pcanBi->prec = prec;
     pcanBi->ioscanpvt = NULL;
     pcanBi->status = NO_ALARM;
 
@@ -137,9 +139,9 @@ static long init_bi (
 	if (canSilenceErrors) {
 	    pcanBi->inp.canBusID = NULL;
 	    prec->pact = TRUE;
-	    return 0;
+	    return OK;
 	} else {
-	    recGblRecordError(S_can_badAddress, prec,
+	    recGblRecordError(S_can_badAddress, (void *) prec,
 			      "devBiCan (init_record) bad CAN address");
 	    return S_can_badAddress;
 	}
@@ -164,55 +166,53 @@ static long init_bi (
     for (pbus = firstBus; pbus != NULL; pbus = pbus->nextBus) {
     	if (pbus->canBusID == pcanBi->inp.canBusID) break;
     }
-
+    
     /* If not found, create one */
     if (pbus == NULL) {
-	pbus = malloc(sizeof (biCanBus_t));
-	if (pbus == NULL) return S_dev_noMemory;
-
-	/* Fill it in */
-	pbus->firstPrivate = NULL;
-	pbus->canBusID = pcanBi->inp.canBusID;
-	callbackSetUser(pbus, &pbus->callback);
-	callbackSetCallback(busCallback, &pbus->callback);
-	callbackSetPriority(priorityMedium, &pbus->callback);
-
-	/* and add it to the list of busses we know about */
-	pbus->nextBus = firstBus;
-	firstBus = pbus;
-
-	/* Ask driver for error signals */
-	canSignal(pbus->canBusID, busSignal, pbus);
+    	pbus = malloc(sizeof (biCanBus_t));
+    	if (pbus == NULL) return S_dev_noMemory;
+    	
+    	/* Fill it in */
+    	pbus->firstPrivate = NULL;
+    	pbus->canBusID = pcanBi->inp.canBusID;
+    	callbackSetCallback((VOIDFUNCPTR) busCallback, &pbus->callback);
+    	callbackSetPriority(priorityMedium, &pbus->callback);
+    	
+    	/* and add it to the list of busses we know about */
+    	pbus->nextBus = firstBus;
+    	firstBus = pbus;
+    	
+    	/* Ask driver for error signals */
+    	canSignal(pbus->canBusID, (canSigCallback_t *) busSignal, pbus);
     }
-
+    
     /* Insert private record structure into linked list for this CANbus */
     pcanBi->nextPrivate = pbus->firstPrivate;
     pbus->firstPrivate = pcanBi;
 
     /* Set the callback parameters for asynchronous processing */
-    callbackSetUser(prec, &pcanBi->callback);
-    callbackSetCallback(ProcessCallback, &pcanBi->callback);
+    callbackSetCallback((VOIDFUNCPTR) biProcess, &pcanBi->callback);
     callbackSetPriority(prec->prio, &pcanBi->callback);
 
-    /* and create a timer for CANbus RTR timeouts */
-    pcanBi->timId = epicsTimerQueueCreateTimer(canTimerQ,
-		(epicsTimerCallback)callbackRequest, pcanBi);
-    if (pcanBi->timId == NULL) {
+    /* and create a watchdog for CANbus RTR timeouts */
+    pcanBi->wdId = wdCreate();
+    if (pcanBi->wdId == NULL) {
 	return S_dev_noMemory;
     }
 
     /* Register the message handler with the Canbus driver */
-    canMessage(pcanBi->inp.canBusID, pcanBi->inp.identifier, biMessage, pcanBi);
+    canMessage(pcanBi->inp.canBusID, pcanBi->inp.identifier, 
+	       (canMsgCallback_t *) biMessage, pcanBi);
 
-    return 0;
+    return OK;
 }
 
-static long get_ioint_info (
+LOCAL long get_ioint_info (
     int cmd,
     struct biRecord *prec, 
     IOSCANPVT *ppvt
 ) {
-    biCanPrivate_t *pcanBi = prec->dpvt;
+    biCanPrivate_t *pcanBi = (biCanPrivate_t *) prec->dpvt;
 
     if (pcanBi->ioscanpvt == NULL) {
 	scanIoInit(&pcanBi->ioscanpvt);
@@ -223,13 +223,13 @@ static long get_ioint_info (
     #endif
 
     *ppvt = pcanBi->ioscanpvt;
-    return 0;
+    return OK;
 }
 
-static long read_bi (
+LOCAL long read_bi (
     struct biRecord *prec
 ) {
-    biCanPrivate_t *pcanBi = prec->dpvt;
+    biCanPrivate_t *pcanBi = (biCanPrivate_t *) prec->dpvt;
 
     if (pcanBi->inp.canBusID == NULL) {
 	return DO_NOT_CONVERT;
@@ -270,7 +270,9 @@ static long read_bi (
 		prec->pact = TRUE;
 		pcanBi->status = TIMEOUT_ALARM;
 
-		epicsTimerStartDelay(pcanBi->timId, pcanBi->inp.timeout);
+		callbackSetPriority(prec->prio, &pcanBi->callback);
+		wdStart(pcanBi->wdId, pcanBi->inp.timeout, 
+			(FUNCPTR) callbackRequest, (int) pcanBi);
 		canWrite(pcanBi->inp.canBusID, &message, pcanBi->inp.timeout);
 		return DO_NOT_CONVERT;
 	    }
@@ -281,25 +283,22 @@ static long read_bi (
     }
 }
 
-static void ProcessCallback(CALLBACK *pcallback)
-{
-    dbCommon    *pRec;
-
-    callbackGetUser(pRec, pcallback);
-    dbScanLock(pRec);
-    (*pRec->rset->process)(pRec);
-    dbScanUnlock(pRec);
+LOCAL void biProcess (
+    biCanPrivate_t *pcanBi
+) {
+    dbScanLock((struct dbCommon *) pcanBi->prec);
+    (*((struct rset *) pcanBi->prec->rset)->process)(pcanBi->prec);
+    dbScanUnlock((struct dbCommon *) pcanBi->prec);
 }
 
-static void biMessage (
-    void *private,
-    const canMessage_t *pmessage
+LOCAL void biMessage (
+    biCanPrivate_t *pcanBi,
+    canMessage_t *pmessage
 ) {
-    biCanPrivate_t *pcanBi = private;
-
-    if (!interruptAccept ||
-	pmessage->rtr == RTR) {
-	return;
+    if (!interruptAccept) return;
+    
+    if (pmessage->rtr == RTR) {
+	return;		/* Ignore RTRs */
     }
 
     pcanBi->data = pmessage->data[pcanBi->inp.offset];
@@ -309,49 +308,46 @@ static void biMessage (
 	scanIoRequest(pcanBi->ioscanpvt);
     } else if (pcanBi->status == TIMEOUT_ALARM) {
 	pcanBi->status = NO_ALARM;
-	epicsTimerCancel(pcanBi->timId);
+	wdCancel(pcanBi->wdId);
 	callbackRequest(&pcanBi->callback);
     }
 }
 
-static void busSignal (
-    void *private,
+LOCAL void busSignal (
+    biCanBus_t *pbus,
     int status
 ) {
-    biCanBus_t *pbus = private;
-
     if (!interruptAccept) return;
-
+    
     switch(status) {
 	case CAN_BUS_OK:
-	    pbus->status = NO_ALARM;
+	    logMsg("devBiCan: Bus Ok event from %s\n",
+			   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
+		pbus->status = NO_ALARM;
 	    break;
 	case CAN_BUS_ERROR:
+	    logMsg("devBiCan: Bus Error event from %s\n",
+			   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;
 	case CAN_BUS_OFF:
+	    logMsg("devBiCan: Bus Off event from %s\n",
+			   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;
     }
 }
 
-static void busCallback (
-    CALLBACK *pCallback
+LOCAL void busCallback (
+    biCanBus_t *pbus
 ) {
-    biCanBus_t *pbus;
-    biCanPrivate_t *pcanBi;
-
-    callbackGetUser(pbus, pCallback);
-    pcanBi = pbus->firstPrivate;
-
+    biCanPrivate_t *pcanBi = pbus->firstPrivate;
+    
     while (pcanBi != NULL) {
-	struct dbCommon *prec = pcanBi->prec;
 	pcanBi->status = pbus->status;
-	dbScanLock(prec);
-	prec->rset->process(prec);
-	dbScanUnlock(prec);
+	biProcess(pcanBi);
 	pcanBi = pcanBi->nextPrivate;
     }
 }

@@ -17,7 +17,7 @@ Author:
 Created:
     5 July 1995
 Version:
-    drvVipc310.c,v 1.8 2007/05/25 20:33:46 anj Exp
+    drvVipc310.c,v 1.6 2004/12/15 23:15:27 anj Exp
 
 Copyright (c) 1995-2003 Andrew Johnson
 
@@ -37,15 +37,16 @@ Copyright (c) 1995-2003 Andrew Johnson
 
 *******************************************************************************/
 
+#include <vxWorks.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
-#include <devLib.h>
-#include <epicsExport.h>
-#include <iocsh.h>
+#include <vme.h>
+#include <sysLib.h>
 
 #include "drvIpac.h"
+#include "epicsExport.h"
+#include "iocsh.h"
 
 
 /* Characteristics of the card */
@@ -53,7 +54,6 @@ Copyright (c) 1995-2003 Andrew Johnson
 #define SLOTS 2
 #define IO_SPACES 2	/* Address spaces in A16 */
 #define IPAC_IRQS 2	/* Interrupts per module */
-#define EXTENT 0x200	/* Register size in A16 */
 
 
 /* Offsets from base address in VME A16 */
@@ -134,9 +134,8 @@ LOCAL int initialise (
     void **pprivate,
     ushort_t carrier
 ) {
-    int params, mSize = 0;
-    ulong_t ioBase, mOrig, mBase, mEnd, addr;
-    volatile void *ptr;
+    int params, status1 = OK, status2 = OK, mSize = 0;
+    long ioBase, mOrig, mBase;
     ushort_t space, slot;
     private_t *private;
     static const int offset[IO_SPACES][SLOTS] = {
@@ -146,10 +145,9 @@ LOCAL int initialise (
 
     if (cardParams == NULL ||
 	strlen(cardParams) == 0) {
-	/* No params or empty string, use manufacturers default settings */
 	ioBase = 0x6000;
     } else {
-	params = sscanf(cardParams, "%i,%i", &ioBase, &mSize);
+	params = sscanf(cardParams, "%p,%i", (void **) &ioBase, &mSize);
 	if (params < 1 || params > 2 ||
 	    ioBase > 0xfe00 || ioBase & 0x01ff ||
 	    mSize < 0 || mSize > 2048 || mSize & 63) {
@@ -159,19 +157,17 @@ LOCAL int initialise (
 
     mBase = ioBase << 8;	/* Fixed by VIPC310 card */
 
-    if (devRegisterAddress("VIPC310", atVMEA16, ioBase, EXTENT, &ptr)) {
+    status1 = sysBusToLocalAdrs(VME_AM_SUP_SHORT_IO, 
+				(char *) ioBase, (char **) &ioBase);
+    if (mSize > 0) {
+	status2 = sysBusToLocalAdrs(VME_AM_STD_SUP_DATA, 
+			  (char *) mBase, (char **) &mBase);
+    }
+    if (status1 || status2) {
 	return S_IPAC_badAddress;
     }
-    ioBase = (ulong_t) ptr;
 
     mSize = mSize << 10;	/* Convert size from K to Bytes */
-    mEnd = (mBase & ~(mSize * SLOTS - 1)) + mSize * SLOTS;
-
-    if (mSize &&
-	devRegisterAddress("VIPC310", atVMEA24, mBase, mEnd - mBase, &ptr)) {
-	return S_IPAC_badAddress;
-    }
-    mBase = (ulong_t) ptr;
     mOrig = mBase & ~(mSize * SLOTS - 1);
 
     private = malloc(sizeof (private_t));
@@ -184,14 +180,15 @@ LOCAL int initialise (
 	}
     }
 
-    for (slot = 0; slot < SLOTS; slot++) {
-	(*private)[ipac_addrIO32][slot] = NULL;
-	addr = mOrig + (mSize * slot);
-	if ((mSize == 0) || (addr < mBase)) {
-	    (*private)[ipac_addrMem][slot] = NULL;
-	} else {
-	    (*private)[ipac_addrMem][slot] = (void *) addr;
-	}
+    (*private)[ipac_addrIO32][0] = NULL;
+    (*private)[ipac_addrIO32][1] = NULL;
+
+    if (mOrig == mBase) {
+	(*private)[ipac_addrMem][0] = (void *) mBase;
+	(*private)[ipac_addrMem][1] = (void *) (mBase + mSize);
+    } else {
+	(*private)[ipac_addrMem][0] = NULL;
+	(*private)[ipac_addrMem][1] = (void *) mBase;
     }
 
     *pprivate = private;
@@ -265,7 +262,7 @@ LOCAL int irqCmd (
 	    return irqLevel[slot][irqNumber];
 
 	case ipac_irqEnable:
-	    devEnableInterruptLevel(intVME, irqLevel[slot][irqNumber]);
+	    sysIntEnable(irqLevel[slot][irqNumber]);
 	    return OK;
 
 	default:

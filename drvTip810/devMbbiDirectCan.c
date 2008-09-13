@@ -14,7 +14,7 @@ Author:
 Created:
     14 August 1995
 Version:
-    devMbbiDirectCan.c,v 1.16 2007/05/25 19:42:14 anj Exp
+    devMbbiDirectCan.c,v 1.15 2003/10/29 20:46:31 anj Exp
 
 Copyright (c) 1995-2000 Andrew Johnson
 
@@ -35,25 +35,27 @@ Copyright (c) 1995-2000 Andrew Johnson
 *******************************************************************************/
 
 
+#include <vxWorks.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <wdLib.h>
+#include <logLib.h>
 
-#include <errMdef.h>
-#include <devLib.h>
-#include <dbAccess.h>
-#include <dbScan.h>
-#include <callback.h>
-#include <cvtTable.h>
-#include <link.h>
-#include <alarm.h>
-#include <recGbl.h>
-#include <recSup.h>
-#include <devSup.h>
-#include <dbCommon.h>
-#include <mbbiDirectRecord.h>
-#include <epicsExport.h>
-
+#include "errMdef.h"
+#include "devLib.h"
+#include "dbAccess.h"
+#include "dbScan.h"
+#include "callback.h"
+#include "cvtTable.h"
+#include "link.h"
+#include "alarm.h"
+#include "recGbl.h"
+#include "recSup.h"
+#include "devSup.h"
+#include "dbCommon.h"
+#include "mbbiDirectRecord.h"
 #include "canBus.h"
+#include "epicsExport.h"
 
 
 #define CONVERT 0
@@ -61,31 +63,31 @@ Copyright (c) 1995-2000 Andrew Johnson
 
 
 typedef struct mbbiDirectCanPrivate_s {
-    CALLBACK callback;
+    CALLBACK callback;		/* This *must* be first member */
     struct mbbiDirectCanPrivate_s *nextPrivate;
-    epicsTimerId timId;
+    WDOG_ID wdId;
     IOSCANPVT ioscanpvt;
-    dbCommon *prec;
+    struct mbbiDirectRecord *prec;
     canIo_t inp;
-    epicsUInt32 data;
+    long data;
     int status;
 } mbbiDirectCanPrivate_t;
 
 typedef struct mbbiDirectCanBus_s {
-    CALLBACK callback;
+    CALLBACK callback;		/* This *must* be first member */
     struct mbbiDirectCanBus_s *nextBus;
     mbbiDirectCanPrivate_t *firstPrivate;
     void *canBusID;
     int status;
 } mbbiDirectCanBus_t;
 
-static long init_mbbiDirect(struct mbbiDirectRecord *prec);
-static long get_ioint_info(int cmd, struct mbbiDirectRecord *prec, IOSCANPVT *ppvt);
-static long read_mbbiDirect(struct mbbiDirectRecord *prec);
-static void ProcessCallback(CALLBACK *pcallback);
-static void mbbiDirectMessage(void *private, const canMessage_t *pmessage);
-static void busSignal(void *private, int status);
-static void busCallback(CALLBACK *pCallback);
+LOCAL long init_mbbiDirect(struct mbbiDirectRecord *prec);
+LOCAL long get_ioint_info(int cmd, struct mbbiDirectRecord *prec, IOSCANPVT *ppvt);
+LOCAL long read_mbbiDirect(struct mbbiDirectRecord *prec);
+LOCAL void mbbiDirectProcess(mbbiDirectCanPrivate_t *pcanMbbiDirect);
+LOCAL void mbbiDirectMessage(mbbiDirectCanPrivate_t *pcanMbbiDirect, canMessage_t *pmessage);
+LOCAL void busSignal(mbbiDirectCanBus_t *pbus, int status);
+LOCAL void busCallback(mbbiDirectCanBus_t *pbus);
 
 struct {
     long number;
@@ -104,28 +106,28 @@ struct {
 };
 epicsExportAddress(dset, devMbbiDirectCan);
 
-static mbbiDirectCanBus_t *firstBus;
+LOCAL mbbiDirectCanBus_t *firstBus;
 
 
-static long init_mbbiDirect (
+LOCAL long init_mbbiDirect (
     struct mbbiDirectRecord *prec
 ) {
     mbbiDirectCanPrivate_t *pcanMbbiDirect;
     mbbiDirectCanBus_t *pbus;
     int status;
-
+    
     if (prec->inp.type != INST_IO) {
-	recGblRecordError(S_db_badField, prec,
+	recGblRecordError(S_db_badField, (void *) prec,
 			  "devMbbiDirectCan (init_record) Illegal INP field");
 	return S_db_badField;
     }
 
-    pcanMbbiDirect = malloc(sizeof(mbbiDirectCanPrivate_t));
+    pcanMbbiDirect = (mbbiDirectCanPrivate_t *) malloc(sizeof(mbbiDirectCanPrivate_t));
     if (pcanMbbiDirect == NULL) {
 	return S_dev_noMemory;
     }
     prec->dpvt = pcanMbbiDirect;
-    pcanMbbiDirect->prec = (dbCommon *) prec;
+    pcanMbbiDirect->prec = prec;
     pcanMbbiDirect->ioscanpvt = NULL;
     pcanMbbiDirect->status = NO_ALARM;
 
@@ -137,9 +139,9 @@ static long init_mbbiDirect (
 	if (canSilenceErrors) {
 	    pcanMbbiDirect->inp.canBusID = NULL;
 	    prec->pact = TRUE;
-	    return 0;
+	    return OK;
 	} else {
-	    recGblRecordError(S_can_badAddress, prec,
+	    recGblRecordError(S_can_badAddress, (void *) prec,
 			      "devMbbiDirectCan (init_record) bad CAN address");
 	    return S_can_badAddress;
 	}
@@ -174,8 +176,7 @@ static long init_mbbiDirect (
       /* Fill it in */
       pbus->firstPrivate = NULL;
       pbus->canBusID = pcanMbbiDirect->inp.canBusID;
-      callbackSetUser(pbus, &pbus->callback);
-      callbackSetCallback(busCallback, &pbus->callback);
+      callbackSetCallback((VOIDFUNCPTR) busCallback, &pbus->callback);
       callbackSetPriority(priorityMedium, &pbus->callback);
 
       /* and add it to the list of busses we know about */
@@ -183,7 +184,7 @@ static long init_mbbiDirect (
       firstBus = pbus;
 
       /* Ask driver for error signals */
-      canSignal(pbus->canBusID, busSignal, pbus);
+      canSignal(pbus->canBusID, (canSigCallback_t *) busSignal, pbus);
     }  
 
     /* Insert private record structure into linked list for this CANbus */
@@ -191,30 +192,28 @@ static long init_mbbiDirect (
     pbus->firstPrivate = pcanMbbiDirect;
 
     /* Set the callback parameters for asynchronous processing */
-    callbackSetUser(prec, &pcanMbbiDirect->callback);
-    callbackSetCallback(ProcessCallback, &pcanMbbiDirect->callback);
+    callbackSetCallback((VOIDFUNCPTR) mbbiDirectProcess, &pcanMbbiDirect->callback);
     callbackSetPriority(prec->prio, &pcanMbbiDirect->callback);
 
-    /* and create a timer for CANbus RTR timeouts */
-    pcanMbbiDirect->timId = epicsTimerQueueCreateTimer(canTimerQ,
-		(epicsTimerCallback) callbackRequest, pcanMbbiDirect);
-    if (pcanMbbiDirect->timId == NULL) {
+    /* and create a watchdog for CANbus RTR timeouts */
+    pcanMbbiDirect->wdId = wdCreate();
+    if (pcanMbbiDirect->wdId == NULL) {
 	return S_dev_noMemory;
     }
 
     /* Register the message handler with the Canbus driver */
     canMessage(pcanMbbiDirect->inp.canBusID, pcanMbbiDirect->inp.identifier, 
-		mbbiDirectMessage, pcanMbbiDirect);
+	       (canMsgCallback_t *) mbbiDirectMessage, pcanMbbiDirect);
 
-    return 0;
+    return OK;
 }
 
-static long get_ioint_info (
+LOCAL long get_ioint_info (
     int cmd,
     struct mbbiDirectRecord *prec, 
     IOSCANPVT *ppvt
 ) {
-    mbbiDirectCanPrivate_t *pcanMbbiDirect = prec->dpvt;
+    mbbiDirectCanPrivate_t *pcanMbbiDirect = (mbbiDirectCanPrivate_t *) prec->dpvt;
 
     if (pcanMbbiDirect->ioscanpvt == NULL) {
 	scanIoInit(&pcanMbbiDirect->ioscanpvt);
@@ -225,13 +224,13 @@ static long get_ioint_info (
     #endif
 
     *ppvt = pcanMbbiDirect->ioscanpvt;
-    return 0;
+    return OK;
 }
 
-static long read_mbbiDirect (
+LOCAL long read_mbbiDirect (
     struct mbbiDirectRecord *prec
 ) {
-    mbbiDirectCanPrivate_t *pcanMbbiDirect = prec->dpvt;
+    mbbiDirectCanPrivate_t *pcanMbbiDirect = (mbbiDirectCanPrivate_t *) prec->dpvt;
 
     if (pcanMbbiDirect->inp.canBusID == NULL) {
 	return DO_NOT_CONVERT;
@@ -272,10 +271,10 @@ static long read_mbbiDirect (
 		prec->pact = TRUE;
 		pcanMbbiDirect->status = TIMEOUT_ALARM;
 
-		epicsTimerStartDelay(pcanMbbiDirect->timId,
-			pcanMbbiDirect->inp.timeout);
-		canWrite(pcanMbbiDirect->inp.canBusID, &message,
-			 pcanMbbiDirect->inp.timeout);
+		callbackSetPriority(prec->prio, &pcanMbbiDirect->callback);
+		wdStart(pcanMbbiDirect->wdId, pcanMbbiDirect->inp.timeout, 
+			(FUNCPTR) callbackRequest, (int) pcanMbbiDirect);
+		canWrite(pcanMbbiDirect->inp.canBusID, &message, pcanMbbiDirect->inp.timeout);
 		return DO_NOT_CONVERT;
 	    }
 	default:
@@ -285,25 +284,22 @@ static long read_mbbiDirect (
     }
 }
 
-static void ProcessCallback(CALLBACK *pcallback)
-{
-    dbCommon *pRec;
-
-    callbackGetUser(pRec, pcallback);
-    dbScanLock(pRec);
-    (*pRec->rset->process)(pRec);
-    dbScanUnlock(pRec);
+LOCAL void mbbiDirectProcess (
+    mbbiDirectCanPrivate_t *pcanMbbiDirect
+) {
+    dbScanLock((struct dbCommon *) pcanMbbiDirect->prec);
+    (*((struct rset *) pcanMbbiDirect->prec->rset)->process)(pcanMbbiDirect->prec);
+    dbScanUnlock((struct dbCommon *) pcanMbbiDirect->prec);
 }
 
-static void mbbiDirectMessage (
-    void *private,
-    const canMessage_t *pmessage
+LOCAL void mbbiDirectMessage (
+    mbbiDirectCanPrivate_t *pcanMbbiDirect,
+    canMessage_t *pmessage
 ) {
-    mbbiDirectCanPrivate_t *pcanMbbiDirect = private;
-
-    if (!interruptAccept ||
-	pmessage->rtr == RTR) {
-	return;
+    if (!interruptAccept) return;
+    
+    if (pmessage->rtr == RTR) {
+	return;		/* Ignore RTRs */
     }
 
     pcanMbbiDirect->data = pmessage->data[pcanMbbiDirect->inp.offset];
@@ -313,49 +309,46 @@ static void mbbiDirectMessage (
 	scanIoRequest(pcanMbbiDirect->ioscanpvt);
     } else if (pcanMbbiDirect->status == TIMEOUT_ALARM) {
 	pcanMbbiDirect->status = NO_ALARM;
-	epicsTimerCancel(pcanMbbiDirect->timId);
+	wdCancel(pcanMbbiDirect->wdId);
 	callbackRequest(&pcanMbbiDirect->callback);
     }
 }
 
-static void busSignal (
-    void *private,
+LOCAL void busSignal (
+    mbbiDirectCanBus_t *pbus,
     int status
 ) {
-    mbbiDirectCanBus_t *pbus = private;
-
     if (!interruptAccept) return;
-
+    
     switch(status) {
 	case CAN_BUS_OK:
-	    pbus->status = NO_ALARM;
+	    logMsg("devMbbiDirectCan: Bus Ok event from %s\n",
+		   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
+		pbus->status = NO_ALARM;
 	    break;
 	case CAN_BUS_ERROR:
+	    logMsg("devMbbiDirectCan: Bus Error event from %s\n",
+		   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;
 	case CAN_BUS_OFF:
+	    logMsg("devMbbiDirectCan: Bus Off event from %s\n",
+		   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;
     }
 }
 
-static void busCallback (
-    CALLBACK *pCallback
+LOCAL void busCallback (
+    mbbiDirectCanBus_t *pbus
 ) {
-    mbbiDirectCanBus_t *pbus;
-    mbbiDirectCanPrivate_t *pcanMbbiDirect;
-
-    callbackGetUser(pbus, pCallback);
-    pcanMbbiDirect = pbus->firstPrivate;
-
+    mbbiDirectCanPrivate_t *pcanMbbiDirect = pbus->firstPrivate;
+    
     while (pcanMbbiDirect != NULL) {
-	dbCommon *prec = pcanMbbiDirect->prec;
 	pcanMbbiDirect->status = pbus->status;
-	dbScanLock(prec);
-	prec->rset->process(pcanMbbiDirect->prec);
-	dbScanUnlock(prec);
+	mbbiDirectProcess(pcanMbbiDirect);
 	pcanMbbiDirect = pcanMbbiDirect->nextPrivate;
     }
 }
