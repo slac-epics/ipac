@@ -1,4 +1,4 @@
-/* $Id: drvHy8002.c,v 1.1 2007/07/20 17:54:29 drm Exp $
+/* $Id: drvHy8002.c,v 1.2 2007/08/30 19:33:46 luchini Exp $
    Implement an IPAC carrier interface as defined
    by Andrew Johnson <anjohnson@iee.org>
    for the Hytec 8002 carrier board.
@@ -203,12 +203,17 @@ checkprom( unsigned int base)
         str[4] = 0;
         printf("PROM header: '%4s'\n", str);
         /*
-           compare to expected string
+           compare to expected string. 
+           Note: this is a non-standard check of the carrier
+                 identification. Usually the check verifies
+                 the first 4 characters but hytec uses the 
+                 last char for a carrier version number.
+                 Therefoer, only 3 char are checked below.
          */
         i = 0;
-        while(i < 4 && expstr[i] == str[i])
+        while(i < 3 && expstr[i] == str[i])
                 i++;
-        strok = (i == 4);
+        strok = (i == 3);
 
         manid = (int) (*((char *) (base + CARR_MANID)));
         ishytec = (manid == MANUFACTURER_HYTEC);
@@ -267,46 +272,10 @@ carrISR( int vmeslotnum)
 #define TASKDELAY  0.3          /* seconds */
 
 static void
-INTcarrierscan(int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10)
-	{
-        static volatile int _numLeft = 0;
-        PrivateInfo *cc;
-        int res, ldoit;
-        unsigned short probedummy;
-
-        /*
-           begin
-         */
-        while(1)
-        	{
-                epicsThreadSleep( TASKDELAY);
-                ldoit = ( _numLeft > 0);
-                if(ldoit)
-                	{
-                        cc = _CarrierList;
-                        while(cc != NULL)
-                        	{
-                                if(!cc->ispresent)
-                                	{
-                                        res = devReadProbe(sizeof(unsigned short), (volatile const void *) (cc->baseaddr + CARR_IPSTAT), (void *) &probedummy);
-                                        if(res == OK)
-                                        	{
-                                                cc->ispresent = TRUE;
-                                                HWdump(cc);
-                                        	}
-                                	}
-                                cc = cc->next;
-                        	}
-                	}               /*if ldoit */
-        	}                       /*while (1) */
-	}
-
-
-static void
 POLLcarrierscan(void *unused)
 	{
         PrivateInfo *cc;
-        int res, nowpresent;
+        int nowpresent;
         unsigned short probedummy;
 
         /*
@@ -344,7 +313,7 @@ POLLcarrierscan(void *unused)
 void
 hotSwapInit()
 	{
-        int res, d1;
+        int res;
 
         /*
            begin
@@ -811,23 +780,6 @@ report( void *cPrivate, unsigned short slot)
         return NULL;
 	}
 
-
-
-/*return 1 if the card is in the system*/
-static int
-CarrierIsPresent(void *cPrivate)
-	{
-        PrivateInfo *cc = (PrivateInfo *) cPrivate;
-        int retval, res;
-
-        epicsMutexLock(_ListLock);
-        retval = (cc->ispresent);
-        epicsMutexUnlock(_ListLock);
-
-        return retval;
-	}
-
-
 /* Return base addresses for this slot
    and register the address.
 */
@@ -1002,7 +954,6 @@ irqCmd(void *cPrivate, unsigned short slot, unsigned short irqnum, ipac_irqCmd_t
 	{
         int retval = S_IPAC_notImplemented;
         PrivateInfo *pv = (PrivateInfo *) cPrivate;
-        int res;
         unsigned short ipstat, mymask;
         unsigned short dodump = 0;
 
