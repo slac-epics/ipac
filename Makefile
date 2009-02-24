@@ -1,17 +1,15 @@
-# Makefile at top of ipac support tree
-# $Id: Makefile,v 1.4 2003-06-02 20:12:42 anj Exp $
+# Makefile
 
-TOP = .
+TOP=..
+
 include $(TOP)/configure/CONFIG
 
-# Different sites may need to able to select which ipac module drivers
-# are to be built, thus there is no wildcard for DIRS.  Sites may
-# comment out any DIRS lines below which are not required. Additional
-# lines will need to be added as new drivers are installed.
+# Set the following to NO to disable consistency checking of
+# the support applications defined in $(TOP)/configure/RELEASE
+CHECK_RELEASE = YES
 
-DIRS := configure
-DIRS += drvIpac
-DIRS += drvTip810
-DIRS += tyGSOctal
+TARGETS = $(CONFIG_TARGETS)
+CONFIGS += $(subst ../,,$(wildcard $(CONFIG_INSTALLS)))
 
-include $(TOP)/configure/RULES_TOP
+include $(TOP)/configure/RULES
+
