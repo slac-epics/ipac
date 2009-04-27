@@ -12,6 +12,8 @@
 #  Rev:  dd-mmm-yyyy, Reviewer's Name    (USERNAME)
 #--------------------------------------------------------------
 #  Mod:
+#        24-Apr-2009, K. Luchini         (LUCHINI):
+#          release ipac-R3-0-0-lcls1
 #        05-Dec-2007, K. Luchini         (LUCHINI):
 #          release ipac-R2-8-lcls3
 #        08-Oct-2007, K. Luchini         (LUCHINI):
@@ -26,12 +28,15 @@
 #==============================================================
 #
 #
-ipac-R2-8-lcls4:
-Preserve version naming scheme.
-modifications needed to bring the module to EPICS R3-14-9 standard
+ipac-R3-0-0-lcls1: Build with base-R3-14-8-2-lcls3
+                   Build with rtems-4.9.1
 
-ipac-R2-8-1-lcls3:
-	modifications needed to bring the module to EPICS R3-14-9 standard
+ipac-R2-8-lcls4:  Preserve version naming scheme.
+                  modifications needed to bring the module
+                  to EPICS R3-14-9 standard
+
+ipac-R2-8-1-lcls3: modifications needed to bring the module to 
+                   EPICS R3-14-9 standard
 
 ipac-R2-8-lcls3: Backout to build with base-R2-14-8-2-lcls2
                  Compile drvHy8002.c with  no hotswap option
