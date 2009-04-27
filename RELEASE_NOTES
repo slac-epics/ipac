@@ -13,7 +13,7 @@
 #--------------------------------------------------------------
 #  Mod:
 #        24-Apr-2009, K. Luchini         (LUCHINI):
-#          release ipac-R3-0-0-lcls1
+#          release ipac-R2-8-lcls5
 #        05-Dec-2007, K. Luchini         (LUCHINI):
 #          release ipac-R2-8-lcls3
 #        08-Oct-2007, K. Luchini         (LUCHINI):
@@ -27,8 +27,7 @@
 #
 #==============================================================
 #
-#
-ipac-R3-0-0-lcls1: Build with base-R3-14-8-2-lcls3
+ipac-R2-8-lcls5: Build with base-R3-14-8-2-lcls3
                    Build with rtems-4.9.1
 
 ipac-R2-8-lcls4:  Preserve version naming scheme.
