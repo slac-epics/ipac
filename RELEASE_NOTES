@@ -28,7 +28,8 @@
 #==============================================================
 #
 ipac-R2-8-lcls5: Build with base-R3-14-8-2-lcls3
-                   Build with rtems-4.9.1
+                 Build with rtems-4.9.1
+                 Add back xipIoParse
 
 ipac-R2-8-lcls4:  Preserve version naming scheme.
                   modifications needed to bring the module
