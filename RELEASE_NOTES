@@ -11,7 +11,9 @@
 #  Auth: 22-May-2007, K. Luchini         (LUCHINI)
 #  Rev:  dd-mmm-yyyy, Reviewer's Name    (USERNAME)
 #--------------------------------------------------------------
-#  Mod:
+#  Mod:        
+#        22-Feb-2010, K. Luchini/D.Rogind (LUCHINI/DROGIND):
+#          release ipac-R2-8-lcls6
 #        24-Apr-2009, K. Luchini         (LUCHINI):
 #          release ipac-R2-8-lcls5
 #        05-Dec-2007, K. Luchini         (LUCHINI):
@@ -27,6 +29,9 @@
 #
 #==============================================================
 #
+ipac-R2-8-lcls6: Build with base-R3-14-8-2-lcls5
+                 Build with rtems-4.9.3
+
 ipac-R2-8-lcls5: Build with base-R3-14-8-2-lcls3
                  Build with rtems-4.9.1
                  Add back xipIoParse
