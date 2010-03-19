@@ -12,6 +12,8 @@
 #  Rev:  dd-mmm-yyyy, Reviewer's Name    (USERNAME)
 #--------------------------------------------------------------
 #  Mod:        
+#        19-Mar-2010, S. Hoobler         (SONYA):
+#          release ipac-R2-8-lcls7
 #        22-Feb-2010, K. Luchini/D.Rogind (LUCHINI/DROGIND):
 #          release ipac-R2-8-lcls6
 #        24-Apr-2009, K. Luchini         (LUCHINI):
@@ -29,6 +31,9 @@
 #
 #==============================================================
 #
+ipac-R2-8-lcls7: Build with base-R3-14-8-2-lcls6
+                 Build with rtems-4.9.4
+
 ipac-R2-8-lcls6: Build with base-R3-14-8-2-lcls5
                  Build with rtems-4.9.3
 
