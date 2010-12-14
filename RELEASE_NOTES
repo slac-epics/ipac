@@ -31,6 +31,9 @@
 #
 #==============================================================
 #
+ipac-R2-8-lcls8: Builds against both base-R3-14-12 and 
+                 base-R3-14-8-2-lcls6
+
 ipac-R2-8-lcls7: Build with base-R3-14-8-2-lcls6
                  Build with rtems-4.9.4
 
