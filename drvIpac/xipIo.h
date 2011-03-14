@@ -1,22 +1,22 @@
 /*******************************************************************************
 
 Project:
-    CAN Bus Driver for EPICS
+    Gemini Multi-Conjugate Adaptive Optics Project
 
 File:
-    drvTip810.h
+    xipIo.h
 
 Description:
-    Header file for TEWS TIP810 CAN Bus driver.
+    Header file defining the parsing of addresses for
+    XIP modules.
 
 Author:
-    Andrew Johnson <anjohnson@iee.org>
-Created:
-    20 July 1995
-Version:
-    drvTip810.h,v 1.4 2001/02/05 17:19:59 anj Exp
+    Andy Foster <ajf@observatorysciences.co.uk>
 
-Copyright (c) 1995-2000 Andrew Johnson
+Created:
+      12th November 2002
+
+Copyright (c) 2002 Andy Foster
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -34,32 +34,29 @@ Copyright (c) 1995-2000 Andrew Johnson
 
 *******************************************************************************/
 
-
-#ifndef INCdrvTip810H
-#define INCdrvTip810H
-
-#include <sys/types.h>
-#include "canBus.h"
-
+#ifndef INCxipIoH
+#define INCxipIoH
 
 /* Error Numbers */
 
-#ifndef M_t810
-#define M_t810			(810<<16)
+#ifndef M_xip
+#define M_xip  (603 <<16)
 #endif
 
-#define S_t810_duplicateDevice	(M_t810| 1) /*duplicate t810 device definition*/
-#define S_t810_badBusRate 	(M_t810| 2) /*CANbus bit rate not supported*/
-#define S_t810_badDevice	(M_t810| 3) /*device pointer is not for t810*/
-#define S_t810_transmitterBusy	(M_t810| 4) /*transmit buffer unexpectedly busy*/
+#define S_xip_badAddress  (M_xip| 1) /*XIP address syntax error*/
 
 
-extern int t810Status(void *canBusID);
-extern int t810Report(int page);
-extern int t810Create(char *busName, unsigned short card, unsigned short slot, 
-		      unsigned short irqNum, unsigned int busRate);
-extern int t810Shutdown(int starttype);
-extern int t810Initialise(void);
+typedef struct
+{
+  char          *name;
+  int           port;
+  int           bit;
+  int           channel;
+  unsigned char intHandler;
+} xipIo_t;
 
-#endif /* INCdrvTip810H */
+/* Function Prototypes */
 
+int   xipIoParse( char *str, xipIo_t *ptr, char flag );
+
+#endif  /* INCxipIoH */

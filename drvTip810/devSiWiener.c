@@ -38,11 +38,9 @@ Copyright (c) 1995-2000 Carl Lionberger and Andrew Johnson
 *******************************************************************************/
 
 
-#include <vxWorks.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <wdLib.h>
-#include <logLib.h>
+#include <string.h>
 
 #include "errMdef.h"
 #include "devLib.h"
@@ -58,14 +56,20 @@ Copyright (c) 1995-2000 Carl Lionberger and Andrew Johnson
 #include "dbCommon.h"
 #include "stringinRecord.h"
 #include "canBus.h"
-#include "string.h"
 #include "epicsExport.h"
+#include "epicsInterrupt.h"
 
+#ifndef OK
+#define OK 0
+#endif
+#ifndef ERROR
+#define ERROR -1
+#endif
 
 typedef struct siCanPrivate_s {
     CALLBACK callback;		/* This *must* be first member */
     struct siCanPrivate_s *nextPrivate;
-    WDOG_ID wdId;
+    epicsTimerId wdId;
     IOSCANPVT ioscanpvt;
     struct stringinRecord *prec;
     canIo_t inp;
@@ -107,7 +111,6 @@ struct {
 epicsExportAddress(dset, devSiWiener);
 
 LOCAL siCanBus_t *firstBus;
-
 
 LOCAL long init_si (
     struct stringinRecord *prec
@@ -184,7 +187,7 @@ LOCAL long init_si (
     callbackSetPriority(prec->prio, &pcanSi->callback);
 
     /* and create a watchdog for CANbus RTR timeouts */
-    pcanSi->wdId = wdCreate();
+    pcanSi->wdId = epicsTimerQueueCreateTimer( canWdTimerQ, (void(*)())callbackRequest, pcanSi);
     if (pcanSi->wdId == NULL) {
 	return S_dev_noMemory;
     }
@@ -260,8 +263,7 @@ LOCAL long read_si (
 		pcanSi->status = TIMEOUT_ALARM;
 
 		callbackSetPriority(prec->prio, &pcanSi->callback);
-		wdStart(pcanSi->wdId, pcanSi->inp.timeout, 
-			(FUNCPTR) callbackRequest, (int) pcanSi);
+		epicsTimerStartDelay(pcanSi->wdId, pcanSi->inp.timeout);
 		canWrite(pcanSi->inp.canBusID, &message, pcanSi->inp.timeout);
 		return OK;
 	    }
@@ -303,7 +305,7 @@ LOCAL void siMessage (
 	scanIoRequest(pcanSi->ioscanpvt);
     } else if (pcanSi->status == TIMEOUT_ALARM) {
 	pcanSi->status = NO_ALARM;
-	wdCancel(pcanSi->wdId);
+	epicsTimerCancel(pcanSi->wdId);
 	callbackRequest(&pcanSi->callback);
     }
 }
@@ -316,19 +318,22 @@ LOCAL void busSignal (
     
     switch(status) {
 	case CAN_BUS_OK:
-	    logMsg("devSiCan: Bus Ok event from %s\n", 
-	    	   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
+#if DOMESSAGES
+            epicsInterruptContextMessage("devSiCan: Bus Ok event");
+#endif
 	    pbus->status = NO_ALARM;
 	    break;
 	case CAN_BUS_ERROR:
-	    logMsg("devSiCan: Bus Error event from %s\n", 
-	    	   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
+#if DOMESSAGES
+            epicsInterruptContextMessage("devSiCan: Bus Error event");
+#endif
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;
 	case CAN_BUS_OFF:
-	    logMsg("devSiCan: Bus Off event from %s\n", 
-	    	   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
+#if DOMESSAGES
+            epicsInterruptContextMessage("devSiCan: Bus Off event");
+#endif
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;

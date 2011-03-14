@@ -39,12 +39,18 @@ Copyright (c) 1995-2003 Andrew Johnson
 
 *******************************************************************************/
 
+#ifdef NO_EPICS
 #include <vxWorks.h>
+#endif
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#ifdef NO_EPICS
 #include <vme.h>
 #include <sysLib.h>
+#else
+#include "devLib.h"
+#endif
 
 #include "drvIpac.h"
 #include "epicsExport.h"
@@ -113,6 +119,7 @@ Description:
     addresses of the various accessible parts of each IP module.
 
 Parameters:
+
     The parameter string should comprise a hex number (the 0x or 0X at
     the start is optional), optionally followed by a comma and another
     hex number, and possibly then another comma and a decimal integer.  
@@ -160,11 +167,11 @@ Returns:
 LOCAL int initialise (
     const char *cardParams,
     void **pprivate,
-    ushort_t carrier
+    unsigned short carrier
 ) {
     int params, ioStatus, memStatus = OK, mSize = 0;
-    ulong_t ioBase, mOrig, mBase, addr;
-    ushort_t space, slot;
+    unsigned long ioBase, mOrig, mBase, addr;
+    unsigned short space, slot;
     private_t *private;
     static const int offset[IO_SPACES][SLOTS] = {
 	{ PROM_A, PROM_B, PROM_C, PROM_D },
@@ -189,23 +196,52 @@ LOCAL int initialise (
 	}
     }
 
+#ifdef NO_EPICS
     ioStatus = sysBusToLocalAdrs(VME_AM_SUP_SHORT_IO, 
 				(char *) ioBase, (char **) &ioBase);
+#else
+	ioStatus = devRegisterAddress(
+					"Ipac",
+					atVMEA16,
+					ioBase,
+					0x400,	/* TODO don't know if this is correct */
+					(void*)&ioBase);
+#endif
     if (params == 1) {
     	/* No memory, just the A16 I/O space */
 	mSize = 0;
 	mOrig = 0;
     } else if (params == 2) {
 	/* A32 space, 8Mb allocated per module */
+#ifdef NO_EPICS
 	memStatus = sysBusToLocalAdrs(VME_AM_EXT_SUP_DATA, 
 				    (char *) mBase, (char **) &mBase);
+#endif
 	mSize = 8 << 20;
+#ifndef NO_EPICS
+	memStatus = devRegisterAddress(
+					"Ipac",
+					atVMEA32,
+					mBase,
+					mSize,
+					(void*)&mBase);
+#endif
 	mOrig = mBase;
     } else {
 	/* A24 space, variable size per module */
+#ifdef NO_EPICS
 	memStatus = sysBusToLocalAdrs(VME_AM_STD_SUP_DATA, 
 				    (char *) mBase, (char **) &mBase);
+#endif
     	mSize = mSize << 10;	    /* Convert size from K to Bytes */
+#ifndef NO_EPICS
+	memStatus = devRegisterAddress(
+					"Ipac",
+					atVMEA24,
+					mBase,
+					mSize,
+					(void*)&mBase);
+#endif
     	mOrig = mBase & ~(mSize * SLOTS - 1);
 
     }
@@ -215,7 +251,7 @@ LOCAL int initialise (
 
     private = malloc(sizeof (private_t));
     if (!private)
-	return S_IPAC_noMemory;
+        return S_IPAC_noMemory;
 
     for (space = 0; space < IO_SPACES; space++) {
 	for (slot = 0; slot < SLOTS; slot++) {
@@ -260,7 +296,7 @@ Returns:
 
 LOCAL void *baseAddr (
     void *private,
-    ushort_t slot,
+    unsigned short slot,
     ipac_addr_t space
 ) {
     return (*(private_t *) private)[space][slot];
@@ -291,8 +327,8 @@ Returns:
 
 LOCAL int irqCmd (
     void *private,
-    ushort_t slot,
-    ushort_t irqNumber,
+    unsigned short slot,
+    unsigned short irqNumber,
     ipac_irqCmd_t cmd,
     const int irqLevel[SLOTS][IPAC_IRQS]
 ) {
@@ -301,7 +337,11 @@ LOCAL int irqCmd (
 	    return irqLevel[slot][irqNumber];
 
 	case ipac_irqEnable:
+#ifdef NO_EPICS
 	    sysIntEnable(irqLevel[slot][irqNumber]);
+#else
+		devEnableInterruptLevelVME(irqLevel[slot][irqNumber]);
+#endif
 	    return OK;
 
 	default:
@@ -311,8 +351,8 @@ LOCAL int irqCmd (
 
 LOCAL int irqCmd_616 (
     void *private,
-    ushort_t slot,
-    ushort_t irqNumber,
+    unsigned short slot,
+    unsigned short irqNumber,
     ipac_irqCmd_t cmd
 ) {
     static const int irqLevel[SLOTS][IPAC_IRQS] = {
@@ -326,8 +366,8 @@ LOCAL int irqCmd_616 (
 
 LOCAL int irqCmd_616_01 (
     void *private,
-    ushort_t slot,
-    ushort_t irqNumber,
+    unsigned short slot,
+    unsigned short irqNumber,
     ipac_irqCmd_t cmd
 ) {
     static const int irqLevel[SLOTS][IPAC_IRQS] = {

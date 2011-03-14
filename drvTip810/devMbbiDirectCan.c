@@ -35,11 +35,8 @@ Copyright (c) 1995-2000 Andrew Johnson
 *******************************************************************************/
 
 
-#include <vxWorks.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <wdLib.h>
-#include <logLib.h>
 
 #include "errMdef.h"
 #include "devLib.h"
@@ -56,16 +53,23 @@ Copyright (c) 1995-2000 Andrew Johnson
 #include "mbbiDirectRecord.h"
 #include "canBus.h"
 #include "epicsExport.h"
+#include "epicsInterrupt.h"
 
 
 #define CONVERT 0
 #define DO_NOT_CONVERT 2
 
+#ifndef OK
+#define OK 0
+#endif
+#ifndef ERROR
+#define ERROR -1
+#endif
 
 typedef struct mbbiDirectCanPrivate_s {
     CALLBACK callback;		/* This *must* be first member */
     struct mbbiDirectCanPrivate_s *nextPrivate;
-    WDOG_ID wdId;
+    epicsTimerId wdId;
     IOSCANPVT ioscanpvt;
     struct mbbiDirectRecord *prec;
     canIo_t inp;
@@ -176,7 +180,7 @@ LOCAL long init_mbbiDirect (
       /* Fill it in */
       pbus->firstPrivate = NULL;
       pbus->canBusID = pcanMbbiDirect->inp.canBusID;
-      callbackSetCallback((VOIDFUNCPTR) busCallback, &pbus->callback);
+      callbackSetCallback((void(*)()) busCallback, &pbus->callback);
       callbackSetPriority(priorityMedium, &pbus->callback);
 
       /* and add it to the list of busses we know about */
@@ -192,11 +196,11 @@ LOCAL long init_mbbiDirect (
     pbus->firstPrivate = pcanMbbiDirect;
 
     /* Set the callback parameters for asynchronous processing */
-    callbackSetCallback((VOIDFUNCPTR) mbbiDirectProcess, &pcanMbbiDirect->callback);
+    callbackSetCallback((void(*)()) mbbiDirectProcess, &pcanMbbiDirect->callback);
     callbackSetPriority(prec->prio, &pcanMbbiDirect->callback);
 
     /* and create a watchdog for CANbus RTR timeouts */
-    pcanMbbiDirect->wdId = wdCreate();
+	pcanMbbiDirect->wdId = epicsTimerQueueCreateTimer( canWdTimerQ, (void(*)())callbackRequest, pcanMbbiDirect);
     if (pcanMbbiDirect->wdId == NULL) {
 	return S_dev_noMemory;
     }
@@ -272,8 +276,7 @@ LOCAL long read_mbbiDirect (
 		pcanMbbiDirect->status = TIMEOUT_ALARM;
 
 		callbackSetPriority(prec->prio, &pcanMbbiDirect->callback);
-		wdStart(pcanMbbiDirect->wdId, pcanMbbiDirect->inp.timeout, 
-			(FUNCPTR) callbackRequest, (int) pcanMbbiDirect);
+		epicsTimerStartDelay(pcanMbbiDirect->wdId, pcanMbbiDirect->inp.timeout);
 		canWrite(pcanMbbiDirect->inp.canBusID, &message, pcanMbbiDirect->inp.timeout);
 		return DO_NOT_CONVERT;
 	    }
@@ -309,7 +312,7 @@ LOCAL void mbbiDirectMessage (
 	scanIoRequest(pcanMbbiDirect->ioscanpvt);
     } else if (pcanMbbiDirect->status == TIMEOUT_ALARM) {
 	pcanMbbiDirect->status = NO_ALARM;
-	wdCancel(pcanMbbiDirect->wdId);
+	epicsTimerCancel(pcanMbbiDirect->wdId);
 	callbackRequest(&pcanMbbiDirect->callback);
     }
 }
@@ -322,19 +325,22 @@ LOCAL void busSignal (
     
     switch(status) {
 	case CAN_BUS_OK:
-	    logMsg("devMbbiDirectCan: Bus Ok event from %s\n",
-		   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
-		pbus->status = NO_ALARM;
+#if DOMESSAGES
+            epicsInterruptContextMessage("devMbbiDirectCan: Bus Ok event");
+#endif
+            pbus->status = NO_ALARM;
 	    break;
 	case CAN_BUS_ERROR:
-	    logMsg("devMbbiDirectCan: Bus Error event from %s\n",
-		   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
+#if DOMESSAGES
+            epicsInterruptContextMessage("devMbbiDirectCan: Bus Error event");
+#endif
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;
 	case CAN_BUS_OFF:
-	    logMsg("devMbbiDirectCan: Bus Off event from %s\n",
-		   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
+#if DOMESSAGES
+            epicsInterruptContextMessage("devMbbiDirectCan: Bus Off event");
+#endif
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;

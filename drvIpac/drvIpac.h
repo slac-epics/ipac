@@ -16,7 +16,7 @@ Author:
 Created:
     1 July 1995
 Version:
-    drvIpac.h,v 1.9 2004/12/15 23:19:19 anj Exp
+    drvIpac.h,v 1.6 2003/11/04 21:35:11 anj Exp
 
 Copyright (c) 1995-2000 Andrew Johnson
 
@@ -40,7 +40,7 @@ Copyright (c) 1995-2000 Andrew Johnson
 #ifndef INCdrvIpacH
 #define INCdrvIpacH
 
-#include <types.h>
+#include <sys/types.h>
 
 #ifndef NO_EPICS
 #include <errMdef.h>
@@ -84,19 +84,19 @@ extern "C" {
 /* Structure of the IPAC ID Prom, located in the pack ID space. */
 
 typedef volatile struct {
-    uint16_t asciiI;
-    uint16_t asciiP;
-    uint16_t asciiA;
-    uint16_t asciiC;
-    uint16_t manufacturerId;
-    uint16_t modelId;
-    uint16_t revision;
-    uint16_t reserved;
-    uint16_t driverIdLow;
-    uint16_t driverIdHigh;
-    uint16_t bytesUsed;
-    uint16_t CRC;
-    uint16_t packSpecific[52];
+    unsigned short asciiI;
+    unsigned short asciiP;
+    unsigned short asciiA;
+    unsigned short asciiC;
+    unsigned short manufacturerId;
+    unsigned short modelId;
+    unsigned short revision;
+    unsigned short reserved;
+    unsigned short driverIdLow;
+    unsigned short driverIdHigh;
+    unsigned short bytesUsed;
+    unsigned short CRC;
+    unsigned short packSpecific[52];
 } ipac_idProm_t;
 
 
@@ -152,18 +152,18 @@ typedef enum {
 typedef struct {
     char *carrierType;
 			/* String containing carrier board type */
-    ushort_t numberSlots;
+    unsigned short numberSlots;
 			/* Number of IPAC devices this carrier can hold */
-    int (*initialise)(const char *cardParms, void **cPrivate, ushort_t carrier);
+    int (*initialise)(const char *cardParms, void **cPrivate, unsigned short carrier);
 			/* Initialise carrier and return *cPrivate */
-    char *(*report)(void *cPrivate, ushort_t slot);
-			/* Return string giving status of this slot */
-    void *(*baseAddr)(void *cPrivate, ushort_t slot, ipac_addr_t space);
+    char *(*report)(void *cPrivate, unsigned short slot);
+			/* Return string with giving status of this slot */
+    void *(*baseAddr)(void *cPrivate, unsigned short slot, ipac_addr_t space);
 			/* Return base addresses for this slot */
-    int (*irqCmd)(void *cPrivate, ushort_t slot, 
-		ushort_t irqNumber, ipac_irqCmd_t cmd);
+    int (*irqCmd)(void *cPrivate, unsigned short slot, 
+		unsigned short irqNumber, ipac_irqCmd_t cmd);
 			/* Interrupt manipulation */
-    int (*intConnect)(void *cPrivate, ushort_t slot, ushort_t vecNum, 
+    int (*intConnect)(void *cPrivate, unsigned short slot, unsigned short vecNum, 
 		void (*routine)(int parameter), int parameter);
 			/* Connect routine to interrupt vector */
 } ipac_carrier_t;
@@ -178,14 +178,14 @@ extern int ipacInitialise(int after);
 
 /* Functions for use in IPAC module drivers */
 
-extern int ipmCheck(ushort_t carrier, ushort_t slot);
-extern int ipmValidate(ushort_t carrier, ushort_t slot,
-		uchar_t manufacturerId, uchar_t modelId);
-extern char *ipmReport(ushort_t carrier, ushort_t slot);
-extern void *ipmBaseAddr(ushort_t carrier, ushort_t slot, ipac_addr_t space);
-extern int ipmIrqCmd(ushort_t carrier, ushort_t slot, 
-		ushort_t irqNumber, ipac_irqCmd_t cmd);
-extern int ipmIntConnect(ushort_t carrier, ushort_t slot, ushort_t vector, 
+extern int ipmCheck(unsigned short carrier, unsigned short slot);
+extern int ipmValidate(unsigned short carrier, unsigned short slot,
+		unsigned char manufacturerId, const unsigned char modelId);
+extern char *ipmReport(unsigned short carrier, unsigned short slot);
+extern void *ipmBaseAddr(unsigned short carrier, unsigned short slot, ipac_addr_t space);
+extern int ipmIrqCmd(unsigned short carrier, unsigned short slot, 
+		unsigned short irqNumber, ipac_irqCmd_t cmd);
+extern int ipmIntConnect(unsigned short carrier, unsigned short slot, unsigned short vector, 
 		void (*routine)(int parameter), int parameter);
 
 

@@ -35,14 +35,11 @@ Copyright (c) 1995-2000 Andrew Johnson
 *******************************************************************************/
 
 
-#include <vxWorks.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <float.h>
-#include <wdLib.h>
-#include <logLib.h>
 
 #include "errMdef.h"
 #include "devLib.h"
@@ -57,10 +54,19 @@ Copyright (c) 1995-2000 Andrew Johnson
 #include "devSup.h"
 #include "dbCommon.h"
 #include "aoRecord.h"
+#include "menuConvert.h"
 #include "canBus.h"
 #include "epicsExport.h"
+#include "epicsInterrupt.h"
 
 #define DO_NOT_CONVERT	2
+
+#ifndef OK
+#define OK 0
+#endif
+#ifndef ERROR
+#define ERROR -1
+#endif
 
 
 typedef struct aoCanPrivate_s {
@@ -68,8 +74,8 @@ typedef struct aoCanPrivate_s {
     IOSCANPVT ioscanpvt;
     struct aoRecord *prec;
     canIo_t out;
-    ulong_t mask;
-    ulong_t sign;
+    unsigned long mask;
+    unsigned long sign;
     long data;
     int status;
 } aoCanPrivate_t;
@@ -118,7 +124,7 @@ LOCAL long init_ao (
     aoCanPrivate_t *pcanAo;
     aoCanBus_t *pbus;
     int status;
-    ulong_t fsd;
+    unsigned long fsd;
 
     if (prec->out.type != INST_IO) {
 	recGblRecordError(S_db_badField, (void *) prec,
@@ -179,7 +185,7 @@ LOCAL long init_ao (
 	} else {
 	    pcanAo->sign = 0;
 	}
-	if (prec->linr == 1) {
+	if (prec->linr == menuConvertLINEAR) {
 	    prec->roff = pcanAo->sign;
 	    prec->eslo = (prec->eguf - prec->egul) / fsd;
 	} else {
@@ -214,7 +220,7 @@ LOCAL long init_ao (
     	/* Fill it in */
     	pbus->firstPrivate = NULL;
     	pbus->canBusID = pcanAo->out.canBusID;
-    	callbackSetCallback((VOIDFUNCPTR) busCallback, &pbus->callback);
+    	callbackSetCallback((void(*)()) busCallback, &pbus->callback);
     	callbackSetPriority(priorityMedium, &pbus->callback);
     	
     	/* and add it to the list of busses we know about */
@@ -357,8 +363,8 @@ LOCAL long special_linconv (
     int after
 ) {
     if (after) {
-	if (prec->linr == 1) {
-	    ulong_t fsd;
+	if (prec->linr == menuConvertLINEAR) {
+	    unsigned long fsd;
 	    aoCanPrivate_t *pcanAo = (aoCanPrivate_t *) prec->dpvt;
 	    fsd = abs(pcanAo->out.parameter);
 	    if (fsd > 0) {
@@ -397,19 +403,22 @@ LOCAL void busSignal (
     
     switch(status) {
 	case CAN_BUS_OK:
-	    logMsg("devAoCan: Bus Ok event from %s\n",
-	    	   (int) pbus->firstPrivate->out.busName, 0, 0, 0, 0, 0);
-		pbus->status = NO_ALARM;
+#if DOMESSAGES
+            epicsInterruptContextMessage("devAoCan: Bus Ok event");
+#endif
+            pbus->status = NO_ALARM;
 	    break;
 	case CAN_BUS_ERROR:
-	    logMsg("devAoCan: Bus Error event from %s\n",
-	    	   (int) pbus->firstPrivate->out.busName, 0, 0, 0, 0, 0);
+#if DOMESSAGES
+            epicsInterruptContextMessage("devAoCan: Bus Error event");
+#endif
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;
 	case CAN_BUS_OFF:
-	    logMsg("devAoCan: Bus Off event from %s\n",
-	    	   (int) pbus->firstPrivate->out.busName, 0, 0, 0, 0, 0);
+#if DOMESSAGES
+            epicsInterruptContextMessage("devAoCan: Bus Off event");
+#endif
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;

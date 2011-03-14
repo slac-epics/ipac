@@ -35,11 +35,8 @@ Copyright (c) 1995-2000 Andrew Johnson
 *******************************************************************************/
 
 
-#include <vxWorks.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <wdLib.h>
-#include <logLib.h>
 
 #include "errMdef.h"
 #include "devLib.h"
@@ -56,16 +53,21 @@ Copyright (c) 1995-2000 Andrew Johnson
 #include "biRecord.h"
 #include "canBus.h"
 #include "epicsExport.h"
+#include "epicsInterrupt.h"
 
 
 #define CONVERT 0
 #define DO_NOT_CONVERT 2
 
+#ifndef OK
+#define OK 0
+#endif
+
 
 typedef struct biCanPrivate_s {
     CALLBACK callback;		/* This *must* be first member */
     struct biCanPrivate_s *nextPrivate;
-    WDOG_ID wdId;
+    epicsTimerId wdId;
     IOSCANPVT ioscanpvt;
     struct biRecord *prec;
     canIo_t inp;
@@ -175,7 +177,7 @@ LOCAL long init_bi (
     	/* Fill it in */
     	pbus->firstPrivate = NULL;
     	pbus->canBusID = pcanBi->inp.canBusID;
-    	callbackSetCallback((VOIDFUNCPTR) busCallback, &pbus->callback);
+    	callbackSetCallback((void(*)()) busCallback, &pbus->callback);
     	callbackSetPriority(priorityMedium, &pbus->callback);
     	
     	/* and add it to the list of busses we know about */
@@ -191,11 +193,11 @@ LOCAL long init_bi (
     pbus->firstPrivate = pcanBi;
 
     /* Set the callback parameters for asynchronous processing */
-    callbackSetCallback((VOIDFUNCPTR) biProcess, &pcanBi->callback);
+    callbackSetCallback((void(*)()) biProcess, &pcanBi->callback);
     callbackSetPriority(prec->prio, &pcanBi->callback);
 
     /* and create a watchdog for CANbus RTR timeouts */
-    pcanBi->wdId = wdCreate();
+    pcanBi->wdId = epicsTimerQueueCreateTimer( canWdTimerQ, (void(*)())callbackRequest, pcanBi);
     if (pcanBi->wdId == NULL) {
 	return S_dev_noMemory;
     }
@@ -271,8 +273,7 @@ LOCAL long read_bi (
 		pcanBi->status = TIMEOUT_ALARM;
 
 		callbackSetPriority(prec->prio, &pcanBi->callback);
-		wdStart(pcanBi->wdId, pcanBi->inp.timeout, 
-			(FUNCPTR) callbackRequest, (int) pcanBi);
+		epicsTimerStartDelay(pcanBi->wdId, pcanBi->inp.timeout);
 		canWrite(pcanBi->inp.canBusID, &message, pcanBi->inp.timeout);
 		return DO_NOT_CONVERT;
 	    }
@@ -308,7 +309,7 @@ LOCAL void biMessage (
 	scanIoRequest(pcanBi->ioscanpvt);
     } else if (pcanBi->status == TIMEOUT_ALARM) {
 	pcanBi->status = NO_ALARM;
-	wdCancel(pcanBi->wdId);
+	epicsTimerCancel(pcanBi->wdId);
 	callbackRequest(&pcanBi->callback);
     }
 }
@@ -321,19 +322,22 @@ LOCAL void busSignal (
     
     switch(status) {
 	case CAN_BUS_OK:
-	    logMsg("devBiCan: Bus Ok event from %s\n",
-			   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
-		pbus->status = NO_ALARM;
+#if DOMESSAGES
+            epicsInterruptContextMessage("devBiCan: Bus Ok event");
+#endif
+            pbus->status = NO_ALARM;
 	    break;
 	case CAN_BUS_ERROR:
-	    logMsg("devBiCan: Bus Error event from %s\n",
-			   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
+#if DOMESSAGES
+            epicsInterruptContextMessage("devBiCan: Bus Error event");
+#endif
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;
 	case CAN_BUS_OFF:
-	    logMsg("devBiCan: Bus Off event from %s\n",
-			   (int) pbus->firstPrivate->inp.busName, 0, 0, 0, 0, 0);
+#if DOMESSAGES
+            epicsInterruptContextMessage("devBiCan: Bus Off event");
+#endif
 	    pbus->status = COMM_ALARM;
 	    callbackRequest(&pbus->callback);
 	    break;
