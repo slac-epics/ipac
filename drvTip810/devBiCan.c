@@ -14,7 +14,7 @@ Author:
 Created:
     14 August 1995
 Version:
-    devBiCan.c,v 1.16 2007/05/25 19:42:13 anj Exp
+    $Id: devBiCan.c,v 1.1.1.2 2011/04/13 14:31:38 ernesto Exp $
 
 Copyright (c) 1995-2000 Andrew Johnson
 

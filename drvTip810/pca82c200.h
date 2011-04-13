@@ -15,7 +15,7 @@ Author:
 Created:
     19 July 1995
 Version:
-    pca82c200.h,v 1.3 2007/05/25 19:42:14 anj Exp
+    $Id: pca82c200.h,v 1.1.1.2 2011/04/13 14:31:39 ernesto Exp $
 
 Copyright (c) 1995-2000 Andrew Johnson
 
