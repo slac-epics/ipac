@@ -14,7 +14,7 @@ Author:
 Created:
     9 August 1995
 Version:
-    devAoCan.c,v 1.15 2007/05/25 19:42:13 anj Exp
+    $Id: devAoCan.c 177 2008-11-11 20:41:45Z anj $
 
 Copyright (c) 1995-2000 Andrew Johnson
 
@@ -357,20 +357,14 @@ static long special_linconv (
     int after
 ) {
     if (after) {
-	if (prec->linr == menuConvertLINEAR) {
-	    epicsUInt32 fsd;
-	    aoCanPrivate_t *pcanAo = prec->dpvt;
-	    fsd = abs(pcanAo->out.parameter);
-	    if (fsd > 0) {
-		if ((fsd & (fsd-1)) == 0) {
-		    fsd--;
-		}
-
-		prec->roff = pcanAo->sign;
-		prec->eslo = (prec->eguf - prec->egul) / fsd;
+	aoCanPrivate_t *pcanAo = prec->dpvt;
+	epicsUInt32 fsd = abs(pcanAo->out.parameter);
+	if (fsd > 0) {
+	    if ((fsd & (fsd-1)) == 0) {
+		fsd--;
 	    }
-	} else {
-	    prec->roff = 0;
+	    prec->roff = pcanAo->sign;
+	    prec->eslo = (prec->eguf - prec->egul) / fsd;
 	}
     }
     return 0;

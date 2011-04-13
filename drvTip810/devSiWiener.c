@@ -16,7 +16,7 @@ Authors:
 Created:
     25 August 1998
 Version:
-    devSiWiener.c,v 1.7 2007/05/25 19:42:14 anj Exp
+    $Id: devSiWiener.c 177 2008-11-11 20:41:45Z anj $
 
 
 Copyright (c) 1995-2000 Carl Lionberger and Andrew Johnson

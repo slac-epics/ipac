@@ -7,17 +7,22 @@ File:
     drvXy9660.c
 
 Description:
-    IPAC Carrier Driver for the Xycom XVME-9660 and XVME-9670 Quad IP carrier
-    VME boards. This file provides the interface between IPAC driver and the
-    hardware.  This carrier is 6U high and supports A16+A24 addresses only. The
-    only difference between the two models is in the physical wiring used to
-    connect external I/O signals to the IP modules; the XVME-9670 requires a
-    VME-64X backplane with a P0 connector, and has no front panel wiring.
+
+    IPAC Carrier Driver for the Acromag AVME-9660, 9668 and 9670 Quad IP carrier
+    VME boards, which were once sold by Xycom as the XVME-9660 and XVME-9670.
+    This file provides the interface between IPAC driver and the hardware. These
+    carriers are 6U high and supports A16+A24 addresses only. The difference
+    between the 9660 and 9670 is in the physical wiring used to connect external
+    I/O signals to the IP modules; the 9670 requires a VME-64X backplane with a
+    P0 connector, and has no front panel wiring. The AVME-9668 is similar to
+    the 9660 board but can also operate individual IP modules at 32MHz.
 
 Author:
     Andrew Johnson <anjohnson@iee.org>
 Created:
     20th August 2007
+Version:
+    $Id: drvXy9660.c 184 2010-04-19 15:48:34Z anj $
 
 Copyright (c) 2007 UChicago Argonne LLC.
 
@@ -42,14 +47,12 @@ Copyright (c) 2007 UChicago Argonne LLC.
 #include <string.h>
 #include <ctype.h>
 
-#include "xipIo.h"
 #include <devLib.h>
 #include <epicsThread.h>
-#include <epicsExport.h>
 #include <epicsExit.h>
 #include <iocsh.h>
+#include <epicsExport.h>
 
-LOCAL char *strdupn( const char *ct, size_t n );
 #include "drvIpac.h"
 
 #define epicsAssertAuthor "Andrew Johnson <anj@aps.anl.gov>"
@@ -79,17 +82,19 @@ LOCAL char *strdupn( const char *ct, size_t n );
 /* Carrier Board Registers */
 
 typedef struct {
-    short ctlStatus;
-    short irqLevel;
-    short ipError;
-    short memEnable;
-    short pad_c8[4];
-    short memCtl[SLOTS];
-    short pad_d8[4];
-    short irqEnable;
-    short irqStatus;
-    short irqClear;
-    short pad_e6[13];
+    epicsInt16 ctlStatus;
+    epicsInt16 irqLevel;
+    epicsInt16 ipError;
+    epicsInt16 memEnable;
+    epicsInt16 clkControl;
+    epicsInt16 carrierId;
+    epicsInt16 pad_cc[2];
+    epicsInt16 memCtl[SLOTS];
+    epicsInt16 pad_d8[4];
+    epicsInt16 irqEnable;
+    epicsInt16 irqStatus;
+    epicsInt16 irqClear;
+    epicsInt16 pad_e6[13];
 } ctrl_t;
 
 /* Bits in the ctlStatus register: */
@@ -101,6 +106,8 @@ typedef struct {
 #define CSR_AAD     0x40    /* Auto Acknowledge Disable (rw) */
 #define CSR_ACE     0x80    /* Auto Clear Interrupt Enable (rw) */
 
+/* The 9668 has a carrierId register with this identifier */
+#define ID_32MHz    0x0b    /* 32MHz clocks supported */
 
 /* Carrier Private structure, one instance per board */
 
@@ -110,7 +117,7 @@ typedef struct {
 } private_t;
 
 
-static void xy9660reboot(void *r) {
+static void avme96XXreboot(void *r) {
     volatile ctrl_t *regs = (ctrl_t *)r;
     regs->ctlStatus = 0;
 }
@@ -121,7 +128,7 @@ Routine:
     initialise
 
 Purpose:
-    Registers a new XVME-9660 with settings given in cardParams.
+    Registers a new carrier with settings given in cardParams.
 
 Description:
     Parses the parameter string for the card settings, initializes the card,
@@ -170,15 +177,16 @@ Returns:
 static int initialise (
     const char *cardParams,
     void **pprivate,
-    ushort_t carrier
+    epicsUInt16 carrier
 ) {
     epicsUInt32 baseAddr;
+    char *basePtr;
     int irqLevel;
     int skip;
     long status;
     volatile void *ptr;
     volatile ctrl_t *regs;
-    ushort_t space, slot;
+    int space, slot;
     private_t *private;
     static const int offset[IO_SPACES][SLOTS] = {
 	{ PROM_A, PROM_B, PROM_C, PROM_D },
@@ -199,21 +207,23 @@ static int initialise (
 	return S_IPAC_badAddress;
     }
 
-    if (2 != sscanf(cardParams, "%x, %1i %n", &baseAddr, &irqLevel, &skip)) {
-	printf("Xy9660: Error parsing card configuration '%s'\n", cardParams);
+    if (2 != sscanf(cardParams, "%x, %i %n", &baseAddr, &irqLevel, &skip)) {
+	printf("AVME-IP: Error parsing card configuration '%s'\n", cardParams);
 	return S_IPAC_badAddress;
     }
     cardParams += skip;
 
-    status = devRegisterAddress("Xy9660", atVMEA16, baseAddr, EXTENT, &ptr);
+    status = devRegisterAddress("AVME-IP", atVMEA16, baseAddr, EXTENT, &ptr);
     if (status) {
-	printf("Xy9660: Can't map VME address A16:%4.4x\n", baseAddr);
+	printf("AVME-IP: Can't map VME address A16:%4.4x\n", baseAddr);
 	return status;
     }
-    baseAddr = (epicsUInt32) ptr;
-    regs = (volatile ctrl_t *) (baseAddr + CTLREG);
+    basePtr = (char *) ptr;
+    regs = (volatile ctrl_t *) (basePtr + CTLREG);
 
-    if (irqLevel <0 || irqLevel > 7) {
+    if (irqLevel < 0 || irqLevel > 7) {
+        printf("AVME-IP: Bad IRQ level '%d'\n", irqLevel);
+        return S_IPAC_badAddress;
     }
 
     /* Disable everything on the carrier */
@@ -221,6 +231,8 @@ static int initialise (
     regs->memEnable = 0;
     regs->irqEnable = 0;
     regs->irqClear  = 0xff;
+    if ((regs->carrierId & 0xff) == ID_32MHz)
+	regs->clkControl = 0;
 
     private = malloc(sizeof (private_t));
     if (!private)
@@ -230,7 +242,7 @@ static int initialise (
     for (space = 0; space < IO_SPACES; space++) {
 	for (slot = 0; slot < SLOTS; slot++) {
 	    private->addr[space][slot] =
-		(void *) (baseAddr + offset[space][slot]);
+		(void *) (basePtr + offset[space][slot]);
 	}
     }
     for (slot = 0; slot < SLOTS; slot++) {
@@ -246,18 +258,49 @@ static int initialise (
     }
 
     /* Now configure the card */
-    epicsAtExit(xy9660reboot, (void *) regs);
+    epicsAtExit(avme96XXreboot, (void *) regs);
     regs->irqLevel = irqLevel;
     regs->ctlStatus = CSR_ACE | /* Auto-clear interrupts */
 		      CSR_AAD | /* Disable auto-DTACK */
 		      CSR_GIE;  /* Enable interrupts */
     devEnableInterruptLevel(intVME, irqLevel);
 
+    /* On the 9668, use 32MHz clocks where modules support them */
+    if ((regs->carrierId & 0xff) == ID_32MHz) {
+	epicsUInt16 clkControl = 0;
+
+	for (slot = 0; slot < SLOTS; slot++)
+	    if (ipmCheck(carrier, slot) == OK) {
+		ipac_idProm_t *id = (ipac_idProm_t *)
+		    ipmBaseAddr(carrier, slot, ipac_addrID);
+
+		if ((id->asciiP & 0xff) == 'P') {
+		    /* ID Prom is Format 1 */
+		    clkControl |= ((id->asciiC & 0xff) == 'H') << slot;
+		} else {
+		    /* ID Prom is Format 2 */
+		    ipac_idProm2_t *id2 = (ipac_idProm2_t *) id;
+		    epicsUInt16 flags = id2->flags;
+
+		    if (flags & 1) {
+			printf("AVME-IP: IP module at (%d,%d) has flags = %x\n",
+			    carrier, slot, flags);
+			continue;
+		    }
+		    if (flags & 4)
+			clkControl |= 1 << slot;
+		}
+	    }
+
+	if (clkControl)
+	    regs->clkControl = clkControl;
+    }
+
     /* Now finish parsing the parameter string */
     while (*cardParams) {
 	if (3 != sscanf(cardParams, "%1[ABCDabcd] = %1[1248], %x %n",
 		memSlot, memSize, &memBase, &skip)) {
-	    printf("Xy9660: Error parsing slot configuration '%s'\n",
+	    printf("AVME-IP: Error parsing slot configuration '%s'\n",
 		cardParams);
 	    return S_IPAC_badAddress;
 	}
@@ -271,17 +314,17 @@ static int initialise (
 	assert(memCtl >= 0);
 
 	if (memBase & memMask[memCtl]) {
-	    printf("Xy9660: Slot %c bad memory base address %x\n",
+	    printf("AVME-IP: Slot %c bad memory base address %x\n",
 		*memSlot, memBase);
 	    return S_IPAC_badAddress;
 	}
 	memCtl |= (memBase >> 16) & 0xf0;
 
 	/* This also checks for overlapping memory areas */
-	status = devRegisterAddress("Xy9660", atVMEA24, memBase,
+	status = devRegisterAddress("AVME-IP", atVMEA24, memBase,
 	    *memSize << 20, &ptr);
 	if (status) {
-	    printf("Xy9660: Can't map VME address A24:%6.6x\n", memBase);
+	    printf("AVME-IP: Can't map VME address A24:%6.6x\n", memBase);
 	    return status;
 	}
 	private->addr[ipac_addrMem ][slot] = (void *) ptr;
@@ -317,7 +360,7 @@ Returns:
 
 static void *baseAddr (
     void *p,
-    ushort_t slot,
+    epicsUInt16 slot,
     ipac_addr_t space
 ) {
     private_t *private = (private_t *)p;
@@ -349,8 +392,8 @@ Returns:
 
 static int irqCmd (
     void *p,
-    ushort_t slot,
-    ushort_t irqNumber,
+    epicsUInt16 slot,
+    epicsUInt16 irqNumber,
     ipac_irqCmd_t cmd
 ) {
     private_t *private = (private_t *)p;
@@ -381,81 +424,11 @@ static int irqCmd (
     }
 }
 
-int xipIoParse( char *str, xipIo_t *ptr, char flag )
-{
-  char *name;
-  char *end;
 
-  if( str == NULL || ptr == NULL )
-    return 1;
-
-  while( !isalnum(*str) )
-  {
-    if( *str++ == '\0')
-      return 1;
-  }
-
-  name = str;
-
-  str = strpbrk(str, " ");
-  if( str == NULL || *str == '\0' )
-    return 1;
-
-  ptr->name = strdupn(name, str - name);
-  if( ptr->name == NULL )
-    return 1;
-
-  if( flag == 'A' )
-  {
-    end = strchr(str,'C');
-    if( end )
-    {
-      str = end + 1;
-      sscanf(str,"%d", &ptr->channel);
-    }
-    else
-      return 1;
-  }
-  else if( flag == 'B' )
-  {
-    end = strchr(str,'P');
-    if( end )
-    {
-      str = end + 1;
-      sscanf(str,"%d", &ptr->port);
-      end = strchr(str,'B');
-      if( end )
-      {
-        str = end + 1;
-        sscanf(str,"%d", &ptr->bit);
-      }
-      else
-        return 1;
-    }
-    else
-      return 1;
-  }
-  return(0);
-}
-
-LOCAL char *strdupn( const char *ct, size_t n )
-{
-  char *duplicate;
-
-  duplicate = (char *)malloc(n+1);
-  if( !duplicate )
-    return NULL;
-
-  memcpy(duplicate, ct, n);
-  duplicate[n] = '\0';
-
-  return duplicate;
-}
-                         
 /* IPAC Carrier Table */
 
-static ipac_carrier_t xy9660 = {
-    "Xycom XVME-9660",
+static ipac_carrier_t avme96XX = {
+    "Acromag AVME-96xx",
     SLOTS,
     initialise,
     NULL,
@@ -465,26 +438,32 @@ static ipac_carrier_t xy9660 = {
 };
 
 int ipacAddXy9660(const char *cardParams) {
-    return ipacAddCarrier(&xy9660, cardParams);
+    return ipacAddCarrier(&avme96XX, cardParams);
 }
 
+int ipacAddAvme96XX(const char *cardParams) {
+    return ipacAddCarrier(&avme96XX, cardParams);
+}
 
 /* iocsh command table and registrar */
 
 static const iocshArg arg0 =
     {"cardParams", iocshArgString};
-static const iocshArg * const xyArgs[1] =
+static const iocshArg * const avmeArgs[1] =
     {&arg0};
 
 static const iocshFuncDef xyFuncDef =
-    {"ipacAddXy9660", 1, xyArgs};
+    {"ipacAddXy9660", 1, avmeArgs};
+static const iocshFuncDef avmeFuncDef =
+    {"ipacAddAvme96XX", 1, avmeArgs};
 
-static void xyCallFunc(const iocshArgBuf *args) {
-    ipacAddXy9660(args[0].sval);
+static void avmeCallFunc(const iocshArgBuf *args) {
+    ipacAddAvme96XX(args[0].sval);
 }
 
 static void epicsShareAPI xy9660Registrar(void) {
-    iocshRegister(&xyFuncDef, xyCallFunc);
+    iocshRegister(&xyFuncDef, avmeCallFunc);
+    iocshRegister(&avmeFuncDef, avmeCallFunc);
 }
 
 epicsExportRegistrar(xy9660Registrar);

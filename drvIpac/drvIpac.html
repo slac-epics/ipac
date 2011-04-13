@@ -5,7 +5,7 @@
    <meta name="Author" content="Andrew Johnson">
    <meta name="Description" content="How to use the drvIpac Industry Pack Carrier driver software">
    <meta name="KeyWords" content="IndustryPack, vxWorks, EPICS, SBS">
-   <meta name="Version" content="drvIpac.html,v 1.14 2004/12/15 23:19:19 anj Exp">
+   <meta name="Version" content="$Id: drvIpac.html 184 2010-04-19 15:48:34Z anj $">
    <title>drvIpac - Industry Pack Driver</title>
 </head>
 <body bgcolor="#FFFFFF">
@@ -14,7 +14,7 @@
 <h1>
 drvIpac - Industry Pack Driver</h1>
 
-Version 2.8
+Version 2.9
 
 <address>
 Andrew Johnson</address></center>
@@ -89,6 +89,9 @@ Andrew Johnson</address></center>
 
 <li>
 <a href="#MVME162">Motorola MVME162/172</a></li>
+
+<li>
+<a href="#AVME9660">Acromag AVME-9660/9668/9670</a></li>
 </ul></li>
 
 <li>
@@ -116,10 +119,9 @@ RS485)</a></li>
 
 <p>
 This document describes the software interface to a generic Industry Pack
-(IPAC) driver module for vxWorks, written as part of a 
+(IPAC) driver module for EPICS, which was originaly written as part of a 
 <a href="drvTip810.html">CANbus EPICS device driver</a> for the
-<a href="http://www.gemini.edu/">Gemini</a> and 
-<a href="http://www.jach.hawaii.edu/UKIRT/home.html">UKIRT</a> telescopes. The
+<a href="http://www.gemini.edu/">Gemini</a> and UKIRT telescopes. The
 original purpose of the generic IPAC driver was to ensure that the CANbus
 driver would not be restricted to use with a single carrier board but could be
 used with different carriers as required, including with more than one type of
@@ -138,24 +140,20 @@ Carrier drivers are available for most of the common IP carrier boards.</p>
 <p>
 At present the IPAC driver is limited (by the size of an internal array) to
 controlling a maximum of 21 carrier boards, but this limitation should be easy
-to dispense with completely without altering any of its interfaces. Although
-designed primarily to be used from within an EPICS system, the software has
-been written to allow it to be used independent of the presence of EPICS in
-other vxWorks-based applications.</p>
+to dispense with completely without altering any of its interfaces.</p>
 
 <h3>
 <a NAME="Installation"></a>Installation</h3>
 
 <p>
-From version 2.0 onwards the drvIpac subsystem has been separated from the
-CANbus driver but provided within an EPICS &lt;supporttop&gt; application which
+The drvIpac subsystem is an EPICS &lt;supporttop&gt; application which
 can also be used to build IPAC module drivers. To install and use the the ipac
 support, obtain a copy of the tar file or (if you have remote CVS permissions
 at APS) export the software from the CVS repository where it resides as
 <tt>epics/modules/bus/ipac</tt> - CVS tags of the form `<b><tt>V2-1</tt></b>'
 mark the particular file versions required for each release. These instructions
 assume you already have EPICS R3.14.x installed and built (this software should
-work with EPICS R3.14.3 and later). Two steps are then required to install and
+work with EPICS R3.14.4 and later). Two steps are then required to install and
 build the software:</p>
 
 <ol>
@@ -204,7 +202,7 @@ hardware interrupts, although the IndustryPack standard does require that any
 IP module that generates interrupts should provide a vector. On ISA bus
 carriers this vector can be read by the carrier driver to work out which module
 caused the interrupt. A module driver should not need to know about the
-particular bus type its carrier is on, thus ipac now provides the routine <a
+particular bus type its carrier is on, thus Ipac now provides the routine <a
 href="#ipmIntConnect">ipmIntConnect()</a> to allow it to pass such issues off to
 the carrier driver to handle. The interface to this is very similar to the
 standard vxWorks intConnect() routine.</p>
@@ -223,14 +221,9 @@ and carrier drivers.</p>
 
 <p>
 This header file declares the necessary structures, enumerated types and
-functions provided by the driver. These are individually documented below. This
-header <b><tt>#include</tt></b>s the vxWorks ANSI header file <i>types.h</i>
-thus a <b><tt>-I</tt></b> option to the C pre-processor must be used to
-indicate the location of the vxWorks header files.</p>
+functions provided by the driver. These are individually documented below.</p>
 
-<p>If it is necessary to build a copy of the driver for use without EPICS, the
-<i>drvIpac.c</i> file should be compiled with the <b><tt>-DNO_EPICS</tt></b>
-compiler switch to disable the EPICS-specific code.</p>
+<p>This software can no longer be built for use without EPICS.</p>
 
 <hr>
 
@@ -281,7 +274,7 @@ initialised. See the specific documentation for each carrier driver
 Description</h4>
 
 <p>
-This routine will usually be called from the vxWorks (EPICS) start-up script.
+This routine will usually be called from the EPICS start-up script.
 Some types of carrier may need additional initialisation before or after
 registering, but this method using the card parameter string should be
 sufficient for most carriers. Note that only the carrier <tt>initialise()</tt>
@@ -370,7 +363,7 @@ ipacAddCarrier(&amp;vipc310, "0x6800");</pre>
 <p>
 Gets the carrier number of the most recently added carrier board.</p>
 
-<pre>ushort_t ipacLatestCarrier(void);</pre>
+<pre>int ipacLatestCarrier(void);</pre>
 
 <h4>
 Description</h4>
@@ -388,7 +381,7 @@ Returns</h4>
 
 <dl>
 <dt>
-<tt>ushort_t</tt></dt>
+<tt>int</tt></dt>
 
 <dd>
 <table BORDER=2>
@@ -539,14 +532,14 @@ Manufacturer and Model ID codes.</p>
 <p>
 Returns Base CPU address of selected IP address space</p>
 
-<pre>void *ipmBaseAddr(ushort_t carrier, ushort_t slot, ipac_addr_t space);</pre>
+<pre>void *ipmBaseAddr(int carrier, int slot, ipac_addr_t space);</pre>
 
 <h4>
 Parameters</h4>
 
 <dl>
 <dt>
-<a NAME="carrierSlot"></a><tt>ushort_t carrier</tt></dt>
+<a NAME="carrierSlot"></a><tt>int carrier</tt></dt>
 
 <dd>
 Carrier number; identifies a particular carrier board in the system. The
@@ -554,7 +547,7 @@ carriers are given numbers sequentially starting from zero according to
 the order in which they were registered by calling <tt>ipacAddCarrier</tt>.</dd>
 
 <dt>
-<tt>ushort_t slot</tt></dt>
+<tt>int slot</tt></dt>
 
 <dd>
 Slot number; identifies the particular IP slot on the carrier board, starting
@@ -653,14 +646,14 @@ or NULL pointer.</dd>
 Check on the presence of an IPAC module at the given carrier and slot
 number.</p>
 
-<pre>int ipmCheck(ushort_t carrier, ushort_t slot);</pre>
+<pre>int ipmCheck(int carrier, int slot);</pre>
 
 <h4>
 Parameters</h4>
 
 <dl>
 <dt>
-<tt>ushort_t carrier, ushort_t slot</tt></dt>
+<tt>int carrier, int slot</tt></dt>
 
 <dd>
 Module identification - see <a href="#carrierSlot">above</a></dd>
@@ -672,7 +665,7 @@ Description</h4>
 <p>
 Does a quick check to make sure the carrier and slot numbers are legal,
 probes the IDprom space to ensure an IPAC is installed, and checks that
-the IDprom starts with an "IPAC" or "IPAH" identifier.</p>
+the IDprom starts with an "IPAC", "IPAH" or "VITA4" identifier.</p>
 
 <h4>
 Returns</h4>
@@ -716,7 +709,7 @@ Returns</h4>
 <tr>
 <td>S_IPAC_noIpacId</td>
 
-<td>"IPAC" identifier not found</td>
+<td>IP Module identifier not found</td>
 </tr>
 </table></dd>
 </dl>
@@ -731,28 +724,28 @@ Returns</h4>
 Validates a particular IPAC module type at the given carrier &amp; slot
 number.</p>
 
-<pre>int ipmValidate(ushort_t carrier, ushort_t slot,
-                uchar_t manufacturerId, uchar_t modelId);</pre>
+<pre>int ipmValidate(int carrier, int slot,
+                int manufacturerId, int modelId);</pre>
 
 <h4>
 Parameters</h4>
 
 <dl>
 <dt>
-<tt>ushort_t carrier, ushort_t slot</tt></dt>
+<tt>int carrier, int slot</tt></dt>
 
 <dd>
 Module identification - see <a href="#carrierSlot">above</a></dd>
 
 <dt>
-<tt>uchar_t manufacturerId</tt></dt>
+<tt>int manufacturerId</tt></dt>
 
 <dd>
 IPAC Manufacturer Identification Number, as allocated by SBS. This number
 should be given in the Programmer's Documentation for the IPAC module.</dd>
 
 <dt>
-<tt>uchar_t modelId</tt></dt>
+<tt>int modelId</tt></dt>
 
 <dd>
 IPAC Model Identification Number, as allocated by the module manufacturer.
@@ -776,6 +769,17 @@ which the driver has been told to control. If a driver supports more than one
 type of module, it should check each module type individually by calling
 <tt>ipmValidate</tt> with each manufacturer/model pair it can control until it
 finds a match.</p>
+
+<p>
+Releases of drvIpac before 2-9 did not recognize Format-2 ID PROMS as defined in
+the VITA spec. From release 2-9 on this software should be compatible with
+modules having either Format-1 or Format-2 ID PROMS. In the newer format the
+PROM is specified to be 16 bits wide rather than 8, and various fields including
+the Manufacturer and Model numbers have been made wider. The calculated CRC is
+also wider, but some IP Module manufacturers are setting the CRC field to all
+zeros rather than calculating the correct CRC value for it. As a result, the
+<tt>ipmValidate</tt> routine will not check the CRC of a Format-2 ID Prom if its
+CRC field is zero.</p>
 
 <h4>
 Returns</h4>
@@ -831,7 +835,7 @@ Returns</h4>
 <tr>
 <td>S_IPAC_noIpacId</td>
 
-<td>"IPAC" or "IPAH" identifiers not found</td>
+<td>IP Module identifier not found</td>
 </tr>
 </table></dd>
 </dl>
@@ -845,21 +849,21 @@ Returns</h4>
 <p>
 Manipulate the carrier board interrupt controller.</p>
 
-<pre>int ipmIrqCmd(ushort_t carrier, ushort_t slot,
-              ushort_t irqNumber, ipac_irqCmd_t cmd);</pre>
+<pre>int ipmIrqCmd(int carrier, int slot,
+              int irqNumber, ipac_irqCmd_t cmd);</pre>
 
 <h4>
 Parameters</h4>
 
 <dl>
 <dt>
-<tt>ushort_t carrier, ushort_t slot</tt></dt>
+<tt>int carrier, int slot</tt></dt>
 
 <dd>
 Module identification - see <a href="#carrierSlot">above</a></dd>
 
 <dt>
-<tt>ushort_t irqNumber</tt></dt>
+<tt>int irqNumber</tt></dt>
 
 <dd>
 The IPAC specification provides two interrupt lines for each module. This
@@ -1065,7 +1069,7 @@ used.</p></dd>
 Connects a module driver Interrupt Service Routine to a particular interrupt
 vector number.</p>
 
-<pre>int ipmIntConnect (ushort_t carrier, ushort_t slot, ushort_t vecNum, 
+<pre>int ipmIntConnect (int carrier, int slot, int vecNum, 
                    void (*routine)(int parameter), int parameter);</pre>
 
 <h4>
@@ -1073,13 +1077,13 @@ Parameters</h4>
 
 <dl>
 <dt>
-<tt>ushort_t carrier, ushort_t slot</tt></dt>
+<tt>int carrier, int slot</tt></dt>
 
 <dd>
 Module identification - see <a href="#carrierSlot">above</a></dd>
 
 <dt>
-<tt>ushort_t vecNum</tt></dt>
+<tt>int vecNum</tt></dt>
 
 <dd>
 Interrupt vector number</dd>
@@ -1156,14 +1160,14 @@ used.</p></dd>
 
 Returns a printable string giving the status/settings of the given slot.
 
-<pre>char *ipmReport(ushort_t carrier, ushort_t slot);</pre>
+<pre>char *ipmReport(int carrier, int slot);</pre>
 
 <h4>
 Parameters</h4>
 
 <dl>
 <dt>
-<tt>ushort_t carrier, ushort_t slot</tt></dt>
+<tt>int carrier, int slot</tt></dt>
 
 <dd>
 Module identification - see <a href="#carrierSlot">above</a></dd>
@@ -1196,15 +1200,17 @@ Pointer to a static, printable string.</dd>
 Sample Output</h4>
 
 <blockquote>
-<pre>"C0 S1 : 0xB1/0x01 - M0 L4,5"</pre>
+<pre>C0 S0 : 0x23ae80/0x8d49 - M0 L3,3
+C0 S1 : 0xB1/0x01 - M0 L4,5</pre>
 </blockquote>
 
 <p>
-This string is made up of three parts. The first two elements before the
-colon give the carrier and slot number of the slot. If a module is installed,
-the manufacturer and model IDs follow as two hex numbers. Finally if the
-Carrier Driver contains a report function it is called and the string it
-returns is appended after the hyphen.</p>
+This string is made up of three parts. The first two elements before the colon
+give the carrier and slot number of the slot. If a module is installed, the
+manufacturer and model IDs follow as two hex numbers (2 digits each for Format-1
+ID PROMS, 6+4 digits for Format-2 ID PROMS). Finally if the Carrier Driver
+contains a report function it is called and the string it returns is appended
+after a hyphen.</p>
 
 <hr>
 
@@ -1641,7 +1647,6 @@ Configuration Commands and Parameter</h4>
 <pre>int ipacAddTVME200(const char *cardParams);</pre>
 
 <p>
-
 The parameter string must contain exactly 6 hexadecimal digits (without any
 leading 0x or 0X) which are the settings of the six rotary switches on the
 board, in order from S1 through S6. The board's silk-screen printing shows the
@@ -1967,6 +1972,90 @@ the commands are:</p>
 <hr>
 
 
+<h3>
+<a NAME="AVME9660"></a>Acromag AVME-9660/9668/9670</h3>
+
+<p>
+These boards are four-slot, 6U VME carriers, two of which were once sold by
+Xycom as the XVME-9660/9670. On the 9660 board the IP module signal wiring is
+brought out through front panel connectors, whereas the 9670 boards make signal
+wiring available through the VME64x P2 and P0 connectors. The AVME-9668 is like
+the 9660 but can operate IP modules at 8MHz or 32MHz, whereas the other boards
+only support 8MHz operation. A single bank of jumpers provides the only hardware
+configuration, setting the base address of the board in VME A16 space; module
+memory locations in VME A24 space and the module clock speeds for the 9668 are
+configured in software using the board registers.</p>
+
+<p>
+The IPAC Carrier driver is found in the file <i>drvXy9660.c</i> and implements
+the commands <tt>ipacAddAvme96XX</tt> and <tt>ipacAddXy9660</tt> that register a
+single carrier board (of any of the supported models) with drvIpac. The driver
+also exports a registrar routine <tt>xy9660Registrar</tt> that adds the above
+command to the iocsh and will link the driver into a final IOC executable, for
+which it must be listed in the IOC's .dbd file thus:</p>
+
+<blockquote><pre>registrar(xy9660Registrar)</pre></blockquote>
+
+<h4>
+Configuration Commands and Parameter</h4>
+
+<pre>int ipacAddXy9660(const char *cardParams);
+int ipacAddAvme96XX(const char *cardParams);</pre>
+
+<p>
+The parameter string starts with a hex number (a leading 0x is optional) which
+sets the I/O base address of the card in the VME A16 address space (the factory
+default is 0x0000). Next must come a comma, followed by the VME interrupt level
+(0 through 7, although 0 means all interrupts are disabled) to be used for this
+carrier (all module interrupts share the same interrupt level from this
+board).</p>
+
+<p>
+A letter <tt>R</tt> may appear at this point, which causes a carrier soft reset
+to be generated before any further configuration occurs.</p>
+
+<p>
+Finally if any module drivers need to access the memory space on their module,
+the relevent slots must have their memory size and base address configured,
+which is done like this for each slot:</p>
+
+<dl>
+<dt>
+<tt><i>slot</i> = <i>size</i>, <i>address</i></tt></dt>
+
+<dd>
+Configures one slot on the card, setting the size and base address of the slot's
+memory space in VME A24 space. The <i>slot</i> parameter is one of the letters
+<tt>A</tt> through <tt>D</tt> and selects which slot is to be configured. The
+<i>size</i> is a single digit <tt>1</tt>, <tt>2</tt>, <tt>4</tt> or <tt>8</tt>
+which gives the memory size to be used, expressed in MegaBytes. The
+<i>address</i> is a 6-digit hexadecimal number (a leading <tt>0x</tt> is
+optional) which must be compatible with the selected memory size. Slots may be
+configured in any order, but cannot be programmed to overlap.</dd>
+
+</dl>
+
+<h4>
+Configuration Examples</h4>
+
+<blockquote>
+<pre>ipacAddXy9660("0x6000,4 R")</pre>
+</blockquote>
+
+<p>
+This indicates that the carrier board has its I/O base set to A16:6000 and that
+it generates interrupts on VME IRQ4. None of the slots are configured for
+memory, and modules are reset at initialization.</p>
+
+<blockquote>
+<pre>ipacAddAvme96XX("C000,3 A=2,800000 C=1,A00000")</pre>
+</blockquote>
+
+<p>
+The carrier is at A16:C000 and generates level 3 interrupts. Slot A is
+configured for 2MB of memory space at A24:800000 and Slot C for 1MB of memory
+space at A24:A00000.</p>
+
 <h2>
 <a NAME="section5"></a>5. Interface to IPAC Carrier Drivers</h2>
 
@@ -1994,7 +2083,7 @@ routine. This is defined as follows:</p>
 <blockquote>
 <pre>typedef struct {
     char *carrierType;                 <i>/* String describing carrier board type */</i>
-    ushort_t numberSlots;              <i>/* Number of IPAC devices this carrier can hold */</i>
+    int numberSlots;                   <i>/* Number of IPAC devices this carrier can hold */</i>
     int (*initialise)(char *cardParams, void **cPrivate, ushort_t carrier);
                                        <i>/* Initialise carrier and return *cPrivate */</i>
     char *(*report)(void *cPrivate, ushort_t slot);

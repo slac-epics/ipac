@@ -14,7 +14,7 @@ Author:
 Created:
     14 August 1995
 Version:
-    devMbbiCan.c,v 1.16 2007/05/25 19:42:14 anj Exp
+    $Id: devMbbiCan.c 177 2008-11-11 20:41:45Z anj $
 
 Copyright (c) 1995-2000 Andrew Johnson
 
