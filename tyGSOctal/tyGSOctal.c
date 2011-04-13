@@ -3,32 +3,36 @@
 
  Author:        Peregrine M. McGehee
 
- Description:   Sourcefile for GreenSpring Ip_Octal 232, 422, and 485
- serial I/O modules. This software is somewhat based on the HiDEOS
+ Description:   Sourcefile for SBS/GreenSpring Ip_Octal 232, 422, and 485
+ serial I/O modules. This software was somewhat based on the HiDEOS
  device driver developed by Jim Kowalkowski of the Advanced Photon Source.
 **************************************************************************
  
  USER-CALLABLE ROUTINES
  Most of the routines in this driver are accessible only through the I/O
- system.  Two routines, however, must be called directly: tyGSOctalDrv() to
- initialize the driver, and tyGSOctalDevCreate() to create devices.
+ system.  Some routines, however, must be called directly: tyGSOctalDrv() to
+ initialize the driver, tyGSOctalModuleInit() to register modules, and
+ tyGSOctalDevCreate() or tyGSOctalDevCreateAll() to create devices.
 
  Before the driver can be used, it must be initialized by calling
  tyGSOctalDrv().
- This routine should be called exactly once, before any reads, writes, or
- calls to tyGSOctalModuleInit()/tyGSOctalDevCreate().
- 
+ This routine should be called exactly once, before any other routines.
+
+ Each IP module must be registered with the driver before use by calling
+ tyGSOctalModuleInit().
+
  Before a terminal can be used, it must be created using
- tyGSOctalModuleInit()/tyGSOctalDevCreate().
- Each port to be used should have exactly one device associated with it by
- calling this routine.
+ tyGSOctalDevCreate() or tyGSOctalDevCreateAll().
+ Each port to be used must have exactly one device associated with it by
+ calling either of the above routines.
 
  IOCTL FUNCTIONS
- This driver responds to the same ioctl() codes as a normal tty driver; for
- more information, see the manual entry for tyLib.
+ This driver responds to the same ioctl() codes as a normal sio driver; for
+ more information, see the manual entry for tyLib and the BSP documentation
+ for sioLib.
  
  SEE ALSO
- tyLib
+ tyLib, sioLib
  
  History:
  who  when      what
@@ -59,6 +63,7 @@
 #include <tyLib.h>
 #include <sioLib.h>
 #include <vxLib.h>
+#include <epicsTypes.h>
 
 #include "ip_modules.h"     /* GreenSpring IP modules */
 #include "scc2698.h"        /* SCC 2698 UART register map */
@@ -86,7 +91,7 @@ LOCAL int    tyGSOctalOpen(TY_GSOCTAL_DEV *, const char *, int);
 LOCAL int    tyGSOctalWrite(TY_GSOCTAL_DEV *, char *, long);
 LOCAL STATUS tyGSOctalIoctl(TY_GSOCTAL_DEV *, int, int);
 LOCAL int    tyGSOctalStartup(TY_GSOCTAL_DEV *);
-LOCAL void   tyGSOctalBaudSet(TY_GSOCTAL_DEV *, int);
+LOCAL STATUS tyGSOctalBaudSet(TY_GSOCTAL_DEV *, int);
 LOCAL void   tyGSOctalOptsSet(TY_GSOCTAL_DEV *pTyGSOctalDv, int opts);
 LOCAL void   tyGSOctalSetmr(TY_GSOCTAL_DEV *, int, int);
 
@@ -130,8 +135,7 @@ STATUS tyGSOctalDrv
 
     if (!tyGSOctalModules) {
         logMsg("%s: Memory allocation failed!",
-               (int)fn_nm,
-               NULL,NULL,NULL,NULL,NULL);
+               (int)fn_nm, 2,3,4,5,6);
         return (ERROR);
     }
     rebootHookAdd(tyGSOctalRebootHook);    
@@ -210,7 +214,7 @@ LOCAL int tyGSOctalRebootHook(int type)
  * For example:
  * .CS
  *    int idx;
- *    idx = tyGSOctalModuleInit("232", 0x60, 0, 1);
+ *    idx = tyGSOctalModuleInit("SBS232-1", "232", 0x60, 0, 1);
  * .CE
  *
  *
@@ -238,12 +242,14 @@ int tyGSOctalModuleInit
      * Check for the driver being installed.
      */    
     if (tyGSOctalDrvNum <= 0) {
-	errnoSet (S_ioLib_NO_DRIVER);
-	return (ERROR);
+        errnoSet(S_ioLib_NO_DRIVER);
+        return ERROR;
     }
 
-    if (!moduleID || !type)
-	return (ERROR);
+    if (!moduleID || !type) {
+        errnoSet(EINVAL);
+        return ERROR;
+    }
 
     /*
      * Check the IP module type.
@@ -256,9 +262,9 @@ int tyGSOctalModuleInit
         modelID = GSIP_OCTAL485;
     else {
         logMsg("%s: Unsupported module type: %s",
-               (int)fn_nm, (int)type,
-               NULL,NULL,NULL,NULL);
-        return (ERROR);
+               (int)fn_nm, (int)type, 3,4,5,6);
+        errnoSet(EINVAL);
+        return ERROR;
     }
 
     /*
@@ -267,41 +273,38 @@ int tyGSOctalModuleInit
     if ((status = ipmValidate(carrier, module, GREEN_SPRING_ID, modelID))
         != 0) {
         logMsg("%s: Unable to validate IP module\n",
-               (int)fn_nm,
-               NULL,NULL,NULL,NULL,NULL);
+               (int)fn_nm, 2,3,4,5,6);
         logMsg("%s: carrier:%d module:%d modelID:%d\n",
-                (int)fn_nm, carrier, module, modelID,
-                NULL,NULL);
+                (int)fn_nm, carrier, module, modelID, 5,6);
         
         switch(status) {
             case S_IPAC_badAddress:
                 logMsg("%s: Bad carrier or module number\n",
-                       (int)fn_nm,
-                       NULL,NULL,NULL,NULL,NULL);
+                       (int)fn_nm, 2,3,4,5,6);
                 break;
             case S_IPAC_noModule:
                 logMsg("%s: No module installed\n",
-                       (int)fn_nm,NULL,NULL,NULL,NULL,NULL);
+                       (int)fn_nm, 2,3,4,5,6);
                 break;
             case S_IPAC_noIpacId:
                 logMsg("%s: IPAC identifier not found\n",
-                       (int)fn_nm,NULL,NULL,NULL,NULL,NULL);
+                       (int)fn_nm, 2,3,4,5,6);
                 break;
             case S_IPAC_badCRC:
                 logMsg("%s: CRC Check failed\n",
-                       (int)fn_nm,NULL,NULL,NULL,NULL,NULL);
+                       (int)fn_nm, 2,3,4,5,6);
                 break;
             case S_IPAC_badModule:
                 logMsg("%s: Manufacturer or model IDs wrong\n",
-                      (int)fn_nm,NULL,NULL,NULL,NULL,NULL);
+                      (int)fn_nm, 2,3,4,5,6);
                 break;
             default:
                 logMsg("%s: Bad error code: 0x%x\n",
-                       (int)fn_nm, status,
-                       NULL,NULL,NULL,NULL);
+                       (int)fn_nm, status, 3,4,5,6);
                 break;
         }
-        return (ERROR);
+        errnoSet(status);
+        return ERROR;
     }
 
     /* See if the associated IP module has already been set up */
@@ -322,9 +325,9 @@ int tyGSOctalModuleInit
 	
         if (tyGSOctalLastModule >= tyGSOctalMaxModules) {
             logMsg("%s: Maximum module count exceeded!",
-                   (int)fn_nm,
-                   NULL,NULL,NULL,NULL,NULL);
-            return (ERROR);
+                   (int)fn_nm, 2,3,4,5,6);
+            errnoSet(ENOSPC);
+            return ERROR;
         }
         qt = &tyGSOctalModules[tyGSOctalLastModule];
 	qt->modelID = modelID;
@@ -350,24 +353,21 @@ int tyGSOctalModuleInit
         /* set up the single interrupt vector */
         addrMem = (char *) ipmBaseAddr(carrier, module, ipac_addrMem);
 	if (addrMem == NULL) {
-	    logMsg("%s: No memory allocated for carrier %d slot %d",
-		   (int)fn_nm, carrier, module,
-		   NULL,NULL,NULL);
-            return(ERROR);
+	    logMsg("%s: No IPAC memory allocated for carrier %d slot %d",
+		   (int)fn_nm, carrier, module, 4,5,6);
+            return ERROR;
 	}
 	if (vxMemProbe(addrMem, VX_WRITE, 2, (char *) &intNum) == ERROR) {
 	    logMsg("%s: Bus Error writing interrupt vector to address %#x",
-		   (int)fn_nm, (int) addrMem,
-		   NULL,NULL,NULL,NULL);
-            return(ERROR);
+		   (int)fn_nm, (int) addrMem, 3,4,5,6);
+            return ERROR;
 	}
 	
         if (ipmIntConnect(carrier, module, int_num, 
-	    		  tyGSOctalInt, tyGSOctalLastModule)) {
+			  tyGSOctalInt, tyGSOctalLastModule)) {
             logMsg("%s: Unable to connect ISR",
-                   (int)fn_nm,
-                   NULL,NULL,NULL,NULL,NULL);
-            return(ERROR);
+                   (int)fn_nm, 2,3,4,5,6);
+            return ERROR;
         }
         ipmIrqCmd(carrier, module, 0, ipac_irqEnable);
         ipmIrqCmd(carrier, module, 1, ipac_irqEnable);
@@ -385,12 +385,12 @@ int tyGSOctalModuleInit
  * to be used should have exactly one device associated with it by calling
  * this routine.
  *
- * For instance, to create the device "/tyGSOctal/0/1/3", with buffer 
- * sizes of 512 bytes, the proper calls would be:
+ * For instance, to create the device "/SBS/0,1/3", with buffer sizes 
+ * of 512 bytes, the proper calls would be:
  * .CS
- *    int idx, dev;
- *    idx = tyGSOctalModuleInit("232", 0x60, 0, 1);
- *    dev = tyGSOctalDevCreate ("/tyGSOctal/0/1/3", idx, 3, 512, 512);
+ *    if (tyGSOctalModuleInit("232-1", "232", 0x60, 0, 1) != ERROR) {
+ *       char *nam = tyGSOctalDevCreate ("/SBS/0,1/3", "232-1", 3, 512, 512);
+ * }
  * .CE
  *
  * RETURNS: Pointer to device name, or NULL if the driver is not
@@ -453,9 +453,9 @@ const char * tyGSOctalDevCreate
  * For instance, to create devices "/tyGS/0/0" through "/tyGS/0/7", with
  * buffer sizes of 512 bytes, the proper calls would be:
  * .CS
- *    int idx;
- *    idx = tyGSOctalModuleInit("232", 0x60, 0, 1);
- *    tyGSOctalDevCreateAll ("/tyGS/0/", idx, 512, 512);
+ *    if (tyGSOctalModuleInit("232-1", "232", 0x60, 0, 1) != ERROR) {
+ *       tyGSOctalDevCreateAll ("/tyGS/0/", "232-1", 512, 512);
+ * }
  * .CE
  *
  * RETURNS: OK, or ERROR if the driver is not installed, or any device
@@ -476,8 +476,10 @@ STATUS tyGSOctalDevCreateAll
     int port;
     char name[256];
 
-    if (!qt || !base)
+    if (!qt || !base) {
+        errnoSet(EINVAL);
         return ERROR;
+    }
 
     for (port=0; port < 8; port++) {
 	TY_GSOCTAL_DEV *pTyGSOctalDv = &qt->port[port];
@@ -563,7 +565,7 @@ LOCAL void tyGSOctalInitChannel
  * 9600 baud, no parity, 1 stop bit, 8 bits per char, no flow control
  */
     tyGSOctalBaudSet(pTyGSOctalDv, 9600);
-    tyGSOctalOptsSet(pTyGSOctalDv, CS8);
+    tyGSOctalOptsSet(pTyGSOctalDv, CS8 | CLOCAL);
 
 /*
  * enable everything, really only Rx interrupts
@@ -614,8 +616,7 @@ LOCAL int tyGSOctalWrite
      */
     if ( !pTyGSOctalDv ) {
 	logMsg( "%s: (%s) DEVICE DESCRIPTOR INVALID\n",
-	        (int)fn_nm, (int)taskName( taskIdSelf() ),
-		NULL,NULL,NULL,NULL );
+	        (int)fn_nm, (int)taskName( taskIdSelf() ), 3,4,5,6 );
         return (-1);
     } else {
         if (pTyGSOctalDv->mode == RS485)
@@ -676,7 +677,7 @@ LOCAL void tyGSOctalSetmr(TY_GSOCTAL_DEV *pTyGSOctalDv, int mr1, int mr2) {
 
 LOCAL void tyGSOctalOptsSet(TY_GSOCTAL_DEV *pTyGSOctalDv, int opts)
 {
-    UCHAR mr1 = 0, mr2 = 0;
+    epicsUInt8 mr1 = 0, mr2 = 0;
     
     switch (opts & CSIZE) {
 	case CS5: break;
@@ -712,7 +713,7 @@ LOCAL void tyGSOctalOptsSet(TY_GSOCTAL_DEV *pTyGSOctalDv, int opts)
  * NOMANUAL
  */
 
-LOCAL void tyGSOctalBaudSet(TY_GSOCTAL_DEV *pTyGSOctalDv, int baud)
+LOCAL STATUS tyGSOctalBaudSet(TY_GSOCTAL_DEV *pTyGSOctalDv, int baud)
 {
     SCC2698_CHAN *chan = pTyGSOctalDv->chan;
     switch(baud)
@@ -720,12 +721,13 @@ LOCAL void tyGSOctalBaudSet(TY_GSOCTAL_DEV *pTyGSOctalDv, int baud)
 	case 1200:  chan->u.w.csr=0x66; break; 
 	case 2400:  chan->u.w.csr=0x88; break; 
 	case 4800:  chan->u.w.csr=0x99; break; 
-	default:    baud=9600;
 	case 9600:  chan->u.w.csr=0xbb; break; 
 	case 19200: chan->u.w.csr=0xcc; break; 
 	case 38400: chan->u.w.csr=0x22; break; 
+	default:    errnoSet(EINVAL);   return ERROR;
     }
     pTyGSOctalDv->baud = baud;
+    return OK;
 }
 
 /******************************************************************************
@@ -752,7 +754,7 @@ LOCAL STATUS tyGSOctalIoctl
 	case FIOBAUDRATE:
 	case SIO_BAUD_SET:
 	    oldlevel = intLock ();
-	    tyGSOctalBaudSet(pTyGSOctalDv, arg);
+	    status = tyGSOctalBaudSet(pTyGSOctalDv, arg);
 	    intUnlock (oldlevel);
 	    break;
 	case SIO_BAUD_GET:
@@ -771,7 +773,7 @@ LOCAL STATUS tyGSOctalIoctl
 	    break;
     }
 
-    return (status);
+    return status;
 }
 
 /******************************************************************************
@@ -798,7 +800,7 @@ void tyGSOctalConfig (
 
     if (!pTyGSOctalDv) {
 	logMsg("%s: Device %s not found\n",
-	       (int)fn_nm, (int)name, NULL,NULL,NULL,NULL);
+	       (int)fn_nm, (int)name, 3,4,5,6);
 	return;
     }
 
@@ -875,13 +877,12 @@ void tyGSOctalInt
             {
                 inChar = chan->u.r.rhr;
                 if (tyGSOctalDebug)
-                    logMsg("%d/%dR%02x %02x\n", idx, i, inChar,
-                           isr, NULL, NULL);
+                    logMsg("%d/%dR%02x %02x\n", idx, i, inChar, isr, 5,6);
 
                 if (tyIRd(&(pTyGSOctalDv->tyDev), inChar) != OK)
                     if (tyGSOctalDebug)
                         logMsg("tyIRd failed!\n",
-                               NULL,NULL,NULL,NULL,NULL, NULL);
+                               1,2,3,4,5,6);
             }
 
             if (isr & 0x01) /* a byte needs to be sent */
@@ -903,8 +904,7 @@ void tyGSOctalInt
                     
                     if (tyGSOctalDebug)
                         logMsg("TxInt disabled: %d/%d isr=%02x\n",
-                               idx, i, isr,
-                               NULL, NULL, NULL);
+                               idx, i, isr, 4,5,6);
                     
                 }
             }
@@ -913,8 +913,7 @@ void tyGSOctalInt
             {
                 if (tyGSOctalDebug)
                     logMsg("%d/%dE% 02x\n",
-                       idx, i,
-                       sr, NULL, NULL, NULL);
+                       idx, i, sr, 4,5,6);
                        
                 /* reset error status */
                 chan->u.w.cr = 0x40;
@@ -952,8 +951,7 @@ LOCAL int tyGSOctalStartup
     }
     else
         logMsg("%s: tyITX ERROR, sr=%02x",
-               (int)fn_nm, chan->u.r.sr,
-               NULL, NULL, NULL, NULL);
+               (int)fn_nm, chan->u.r.sr, 3,4,5,6);
 
     return (0);
 }

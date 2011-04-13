@@ -17,7 +17,7 @@ Author:
 Created:
     5 July 1995
 Version:
-    drvVipc310.c,v 1.6 2004/12/15 23:15:27 anj Exp
+    $Id: drvVipc310.c 180 2009-08-20 05:02:11Z anj $
 
 Copyright (c) 1995-2003 Andrew Johnson
 
@@ -37,16 +37,15 @@ Copyright (c) 1995-2003 Andrew Johnson
 
 *******************************************************************************/
 
-#include <vxWorks.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <vme.h>
-#include <sysLib.h>
+
+#include <devLib.h>
+#include <iocsh.h>
+#include <epicsExport.h>
 
 #include "drvIpac.h"
-#include "epicsExport.h"
-#include "iocsh.h"
 
 
 /* Characteristics of the card */
@@ -54,6 +53,7 @@ Copyright (c) 1995-2003 Andrew Johnson
 #define SLOTS 2
 #define IO_SPACES 2	/* Address spaces in A16 */
 #define IPAC_IRQS 2	/* Interrupts per module */
+#define EXTENT 0x200	/* Register size in A16 */
 
 
 /* Offsets from base address in VME A16 */
@@ -132,11 +132,13 @@ Returns:
 LOCAL int initialise (
     const char *cardParams,
     void **pprivate,
-    ushort_t carrier
+    epicsUInt16 carrier
 ) {
-    int params, status1 = OK, status2 = OK, mSize = 0;
-    long ioBase, mOrig, mBase;
-    ushort_t space, slot;
+    int params, mSize = 0;
+    epicsUInt32 ioBase, mOrig, mBase, mEnd, addr;
+    volatile void *ptr;
+    char *ioPtr, *mPtr;
+    int space, slot;
     private_t *private;
     static const int offset[IO_SPACES][SLOTS] = {
 	{ PROM_A, PROM_B },
@@ -145,9 +147,10 @@ LOCAL int initialise (
 
     if (cardParams == NULL ||
 	strlen(cardParams) == 0) {
+	/* No params or empty string, use manufacturers default settings */
 	ioBase = 0x6000;
     } else {
-	params = sscanf(cardParams, "%p,%i", (void **) &ioBase, &mSize);
+	params = sscanf(cardParams, "%i,%i", &ioBase, &mSize);
 	if (params < 1 || params > 2 ||
 	    ioBase > 0xfe00 || ioBase & 0x01ff ||
 	    mSize < 0 || mSize > 2048 || mSize & 63) {
@@ -157,17 +160,19 @@ LOCAL int initialise (
 
     mBase = ioBase << 8;	/* Fixed by VIPC310 card */
 
-    status1 = sysBusToLocalAdrs(VME_AM_SUP_SHORT_IO, 
-				(char *) ioBase, (char **) &ioBase);
-    if (mSize > 0) {
-	status2 = sysBusToLocalAdrs(VME_AM_STD_SUP_DATA, 
-			  (char *) mBase, (char **) &mBase);
-    }
-    if (status1 || status2) {
+    if (devRegisterAddress("VIPC310", atVMEA16, ioBase, EXTENT, &ptr)) {
 	return S_IPAC_badAddress;
     }
+    ioPtr = (char *) ptr;	/* ioPtr points to ioBase in A16 space */
 
     mSize = mSize << 10;	/* Convert size from K to Bytes */
+    mEnd = (mBase & ~(mSize * SLOTS - 1)) + mSize * SLOTS;
+
+    if (mSize &&
+	devRegisterAddress("VIPC310", atVMEA24, mBase, mEnd - mBase, &ptr)) {
+	return S_IPAC_badAddress;
+    }
+    mPtr = (char *) ptr;	/* mPtr points to mBase in A24 space */
     mOrig = mBase & ~(mSize * SLOTS - 1);
 
     private = malloc(sizeof (private_t));
@@ -176,19 +181,18 @@ LOCAL int initialise (
 
     for (space = 0; space < IO_SPACES; space++) {
 	for (slot = 0; slot < SLOTS; slot++) {
-	    (*private)[space][slot] = (void *) (ioBase + offset[space][slot]);
+	    (*private)[space][slot] = (void *) (ioPtr + offset[space][slot]);
 	}
     }
 
-    (*private)[ipac_addrIO32][0] = NULL;
-    (*private)[ipac_addrIO32][1] = NULL;
-
-    if (mOrig == mBase) {
-	(*private)[ipac_addrMem][0] = (void *) mBase;
-	(*private)[ipac_addrMem][1] = (void *) (mBase + mSize);
-    } else {
-	(*private)[ipac_addrMem][0] = NULL;
-	(*private)[ipac_addrMem][1] = (void *) mBase;
+    for (slot = 0; slot < SLOTS; slot++) {
+	(*private)[ipac_addrIO32][slot] = NULL;
+	addr = mOrig + (mSize * slot);
+	if ((mSize == 0) || (addr < mBase)) {
+	    (*private)[ipac_addrMem][slot] = NULL;
+	} else {
+	    (*private)[ipac_addrMem][slot] = (void *) (mPtr + (addr - mBase));
+	}
     }
 
     *pprivate = private;
@@ -217,7 +221,7 @@ Returns:
 
 LOCAL void *baseAddr (
     void *private,
-    ushort_t slot,
+    epicsUInt16 slot,
     ipac_addr_t space
 ) {
     return (*(private_t *) private)[space][slot];
@@ -248,8 +252,8 @@ Returns:
 
 LOCAL int irqCmd (
     void *private,
-    ushort_t slot,
-    ushort_t irqNumber,
+    epicsUInt16 slot,
+    epicsUInt16 irqNumber,
     ipac_irqCmd_t cmd
 ) {
     static const int irqLevel[SLOTS][IPAC_IRQS] = {
@@ -262,7 +266,7 @@ LOCAL int irqCmd (
 	    return irqLevel[slot][irqNumber];
 
 	case ipac_irqEnable:
-	    sysIntEnable(irqLevel[slot][irqNumber]);
+	    devEnableInterruptLevel(intVME, irqLevel[slot][irqNumber]);
 	    return OK;
 
 	default:

@@ -22,7 +22,7 @@ Author:
 Created:
     10 December 2004
 Version:
-    drvTvme200.c,v 1.1 2004/12/15 23:19:19 anj Exp
+    $Id: drvTvme200.c 180 2009-08-20 05:02:11Z anj $
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -38,19 +38,21 @@ Version:
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
+Modifications:
+   24-Apr-2006  Wayne Lewis   Added devLib code for non-vxWorks systems
+
 *******************************************************************************/
 
-#include <vxWorks.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <vme.h>
-#include <taskLib.h>
-#include <sysLib.h>
+
+#include <devLib.h>
+#include <epicsThread.h>
+#include <iocsh.h>
+#include <epicsExport.h>
 
 #include "drvIpac.h"
-#include "epicsExport.h"
-#include "iocsh.h"
 
 
 /* Characteristics of the card */
@@ -59,6 +61,7 @@ Version:
 #define IO_SPACES 2	/* Address spaces in A16 */
 #define IPAC_IRQS 2	/* Interrupts per module */
 #define SETTINGS 5	/* Defined S3 positions */
+#define EXTENT 0x400	/* Register size in A16 */
 
 /* Offsets from base address in VME A16 space */
 
@@ -102,8 +105,8 @@ static const int tvmeIrqs[SETTINGS][SLOTS] = {
 /* IRQ and Control Registers */
 
 typedef struct {
-    short irqLevel;  /* IRQ0 = bits 0-2, IRQ1 = bits 4-6 */
-    short control;   /* 0 = IRQ0, 1 = IRQ1, 2 = Error, 7 = Reset */
+    epicsInt16 irqLevel;  /* IRQ0 = bits 0-2, IRQ1 = bits 4-6 */
+    epicsInt16 control;   /* 0 = IRQ0, 1 = IRQ1, 2 = Error, 7 = Reset */
 } ctrl_t;
 
 
@@ -160,11 +163,13 @@ Returns:
 LOCAL int initialise (
     const char *cardParams,
     void **pprivate,
-    ushort_t carrier
+    epicsUInt16 carrier
 ) {
     int s3, s4, mAM;
-    ulong_t switches, ioBase, mSize, mBase;
-    ushort_t space, slot;
+    epicsUInt32 switches, ioBase, mSize, mBase;
+    volatile void *ptr;
+    char *ioPtr, *mPtr;
+    int space, slot;
     private_t *settings;
 
     if (cardParams == NULL ||
@@ -180,11 +185,12 @@ LOCAL int initialise (
     if ((ioBase & 0x0300) || s3 >= SETTINGS)
 	return S_IPAC_badAddress;
 
-    if (sysBusToLocalAdrs(VME_AM_SUP_SHORT_IO, (char *) ioBase, (char **) &ioBase))
+    if (devRegisterAddress("TVME200", atVMEA16, ioBase, EXTENT, &ptr))
 	return S_IPAC_badAddress;
+    ioPtr = (char *) ptr;
 
     for (slot = 0; slot < SLOTS; slot++) {
-	ctrl_t *ctrl = (ctrl_t *) (ioBase + tvmeCtrls[slot]);
+	ctrl_t *ctrl = (ctrl_t *) (ioPtr + tvmeCtrls[slot]);
 	int reg = ctrl->irqLevel & 0x77;
 	int set = tvmeIrqs[s3][slot];
 	/* Correct and warn if levels are wrong */
@@ -204,40 +210,41 @@ LOCAL int initialise (
     case 1: case 2: case 3: case 4: case 5: case 6: case 7:
 	/* A24, variable size per module */
 	mSize = 16384 << s4;	/* Calculate size: 1=32KB, 2=64KB, ... */
-	mAM = VME_AM_STD_SUP_DATA;
+	mAM = atVMEA24;
 	break;
 	
     case 0xf:
 	/* A32, 8MB allocated per module */
 	mSize = 8 << 20;	/* 8MB */
 	mBase <<= 8;
-	mAM = VME_AM_EXT_SUP_DATA;
+	mAM = atVMEA32;
 	break;
 	
     default:
 	return S_IPAC_badAddress;
     }
 
-    if (mSize) {
-	if (sysBusToLocalAdrs(mAM, (char *) mBase, (char **) &mBase) ||
-	    ((mSize * SLOTS - 1) & mBase))	/* address must match size */
-	    return S_IPAC_badAddress;
+    if (mSize &&
+	(((mSize * SLOTS - 1) & mBase) || 	/* address must match size */
+	devRegisterAddress("TVME200", mAM, mBase, mSize * SLOTS,  &ptr))) {
+	return S_IPAC_badAddress;
     }
+    mPtr = (char *) ptr;
 
-    settings = malloc(sizeof (private_t));
+    settings = (private_t *)malloc(sizeof (private_t));
     if (!settings)
 	return S_IPAC_noMemory;
 
     for (space = 0; space < IO_SPACES; space++) {
 	for (slot = 0; slot < SLOTS; slot++) {
 	    settings->addr[space][slot] = (void *)
-		(ioBase + tvmeAddrs[space][slot]);
+		(ioPtr + tvmeAddrs[space][slot]);
 	}
     }
 
     for (slot = 0; slot < SLOTS; slot++) {
-	settings->addr[ipac_addrMem][slot] = (void *) (mBase + mSize * slot);
-	settings->ctrl[slot] = (ctrl_t *) (ioBase + tvmeCtrls[slot]);
+	settings->addr[ipac_addrMem][slot] = (void *) (mPtr + mSize * slot);
+	settings->ctrl[slot] = (ctrl_t *) (ioPtr + tvmeCtrls[slot]);
 	settings->addr[ipac_addrIO32][slot] = NULL;
     }
 
@@ -263,7 +270,7 @@ Returns:
 
 LOCAL char *report (
     void *private,
-    ushort_t slot
+    epicsUInt16 slot
 ) {
     private_t *settings = (private_t *)private;
     volatile ctrl_t *ctrl = settings->ctrl[slot];
@@ -298,7 +305,7 @@ Returns:
 
 LOCAL void *baseAddr (
     void *private,
-    ushort_t slot,
+    epicsUInt16 slot,
     ipac_addr_t space
 ) {
     private_t *settings = (private_t *)private;
@@ -335,8 +342,8 @@ Returns:
 
 LOCAL int irqCmd (
     void *private,
-    ushort_t slot,
-    ushort_t irqNumber,
+    epicsUInt16 slot,
+    epicsUInt16 irqNumber,
     ipac_irqCmd_t cmd
 ) {
     private_t *settings = (private_t *)private;
@@ -359,7 +366,7 @@ LOCAL int irqCmd (
 	    return (ctrl->irqLevel >> iShift) & 7;
 
 	case ipac_irqEnable:
-	    sysIntEnable((ctrl->irqLevel >> iShift) & 7);
+	    devEnableInterruptLevel(intVME, (ctrl->irqLevel >> iShift) & 7);
 	    return OK;
 
 	case ipac_irqPoll:
@@ -368,7 +375,7 @@ LOCAL int irqCmd (
 	case ipac_slotReset:
 	    ctrl->control = 0x80;
 	    while (ctrl->control & 0x80)
-		taskDelay(1);
+		epicsThreadSleep(0.05);
 	    return OK;
 
 	default:

@@ -1,7 +1,7 @@
 /*******************************************************************************
 
 Project:
-    CAN Bus Driver for EPICS
+    IndustryPack Driver Interface for EPICS
 
 File:
     drvIpac.h
@@ -16,9 +16,9 @@ Author:
 Created:
     1 July 1995
 Version:
-    drvIpac.h,v 1.9 2004/12/15 23:19:19 anj Exp
+    $Id: drvIpac.h 180 2009-08-20 05:02:11Z anj $
 
-Copyright (c) 1995-2000 Andrew Johnson
+Copyright (c) 1995-2007 Andrew Johnson
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -40,11 +40,21 @@ Copyright (c) 1995-2000 Andrew Johnson
 #ifndef INCdrvIpacH
 #define INCdrvIpacH
 
-#include <types.h>
+#include "epicsTypes.h"
+#include "errMdef.h"
+#include "shareLib.h"
 
-#ifndef NO_EPICS
-#include <errMdef.h>
+
+/* This type is defined here for backwards compatibility - the original drvIpac
+ * used this type, and replacing it with an OSI equivalent would break any
+ * IPAC carrier drivers that are outside of the drvIpac distribution.  The type
+ * is #defined to use an explicitly-sized type from epicsTypes.h instead (we
+ * can't use a typedef because that could fail on vxWorks).
+ */
+#ifndef ushort_t
+#define ushort_t epicsUInt16
 #endif
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -66,7 +76,7 @@ extern "C" {
 #define S_IPAC_badAddress   (M_ipac| 3) /*Bad IPAC carrier or slot number*/
 #define S_IPAC_badDriver    (M_ipac| 4) /*Bad value from IPAC carrier driver*/
 #define S_IPAC_noModule     (M_ipac| 5) /*No IP module installed*/
-#define S_IPAC_noIpacId     (M_ipac| 6) /*IPAC identifier not found*/
+#define S_IPAC_noIpacId     (M_ipac| 6) /*IPAC/VITA4 identifier not found*/
 #define S_IPAC_badCRC       (M_ipac| 7) /*IPAC CRC Check failed*/
 #define S_IPAC_badModule    (M_ipac| 8) /*IPAC Manufacturer or model ID wrong*/
 #define S_IPAC_notImplemented (M_ipac| 9) /*IPAC Driver command not available*/
@@ -81,23 +91,41 @@ extern "C" {
 #define IPAC_REPORT_LEN	256
 
 
-/* Structure of the IPAC ID Prom, located in the pack ID space. */
+/* Structure of the IPAC ID Prom, located in the pack ID space.
+ */
 
 typedef volatile struct {
-    uint16_t asciiI;
-    uint16_t asciiP;
-    uint16_t asciiA;
-    uint16_t asciiC;
-    uint16_t manufacturerId;
-    uint16_t modelId;
-    uint16_t revision;
-    uint16_t reserved;
-    uint16_t driverIdLow;
-    uint16_t driverIdHigh;
-    uint16_t bytesUsed;
-    uint16_t CRC;
-    uint16_t packSpecific[52];
+    epicsUInt16 asciiI;
+    epicsUInt16 asciiP;
+    epicsUInt16 asciiA;
+    epicsUInt16 asciiC;
+    epicsUInt16 manufacturerId;
+    epicsUInt16 modelId;
+    epicsUInt16 revision;
+    epicsUInt16 reserved;
+    epicsUInt16 driverIdLow;
+    epicsUInt16 driverIdHigh;
+    epicsUInt16 bytesUsed;
+    epicsUInt16 CRC;
+    epicsUInt16 packSpecific[52];
 } ipac_idProm_t;
+
+typedef volatile struct {
+    epicsUInt16 asciiVI;
+    epicsUInt16 asciiTA;
+    epicsUInt16 ascii4_;
+    epicsUInt16 manufacturerIdHigh;
+    epicsUInt16 manufacturerIdLow;
+    epicsUInt16 modelId;
+    epicsUInt16 revision;
+    epicsUInt16 reserved;
+    epicsUInt16 driverIdLow;
+    epicsUInt16 driverIdHigh;
+    epicsUInt16 flags;
+    epicsUInt16 bytesUsed;
+    epicsUInt16 CRC;
+    epicsUInt16 packSpecific[51];
+} ipac_idProm2_t;
 
 
 /* These are the types of address space implemented in the IP
@@ -152,18 +180,18 @@ typedef enum {
 typedef struct {
     char *carrierType;
 			/* String containing carrier board type */
-    ushort_t numberSlots;
+    epicsUInt16 numberSlots;
 			/* Number of IPAC devices this carrier can hold */
-    int (*initialise)(const char *cardParms, void **cPrivate, ushort_t carrier);
+    int (*initialise)(const char *cardParms, void **cPrivate, epicsUInt16 carrier);
 			/* Initialise carrier and return *cPrivate */
-    char *(*report)(void *cPrivate, ushort_t slot);
+    char *(*report)(void *cPrivate, epicsUInt16 slot);
 			/* Return string giving status of this slot */
-    void *(*baseAddr)(void *cPrivate, ushort_t slot, ipac_addr_t space);
+    void *(*baseAddr)(void *cPrivate, epicsUInt16 slot, ipac_addr_t space);
 			/* Return base addresses for this slot */
-    int (*irqCmd)(void *cPrivate, ushort_t slot, 
-		ushort_t irqNumber, ipac_irqCmd_t cmd);
+    int (*irqCmd)(void *cPrivate, epicsUInt16 slot,
+		epicsUInt16 irqNumber, ipac_irqCmd_t cmd);
 			/* Interrupt manipulation */
-    int (*intConnect)(void *cPrivate, ushort_t slot, ushort_t vecNum, 
+    int (*intConnect)(void *cPrivate, epicsUInt16 slot, epicsUInt16 vecNum,
 		void (*routine)(int parameter), int parameter);
 			/* Connect routine to interrupt vector */
 } ipac_carrier_t;
@@ -171,21 +199,20 @@ typedef struct {
 
 /* Functions for startup and interactive use */
 
-extern int ipacAddCarrier(ipac_carrier_t *pcarrier, const char *cardParams);
-extern int ipacReport(int interest);
-extern int ipacInitialise(int after);
+epicsShareFunc int ipacAddCarrier(ipac_carrier_t *pcarrier, const char *cardParams);
+epicsShareFunc int ipacReport(int interest);
 
 
 /* Functions for use in IPAC module drivers */
 
-extern int ipmCheck(ushort_t carrier, ushort_t slot);
-extern int ipmValidate(ushort_t carrier, ushort_t slot,
-		uchar_t manufacturerId, uchar_t modelId);
-extern char *ipmReport(ushort_t carrier, ushort_t slot);
-extern void *ipmBaseAddr(ushort_t carrier, ushort_t slot, ipac_addr_t space);
-extern int ipmIrqCmd(ushort_t carrier, ushort_t slot, 
-		ushort_t irqNumber, ipac_irqCmd_t cmd);
-extern int ipmIntConnect(ushort_t carrier, ushort_t slot, ushort_t vector, 
+epicsShareFunc int ipmCheck(int carrier, int slot);
+epicsShareFunc int ipmValidate(int carrier, int slot,
+		int manufacturerId, int modelId);
+epicsShareFunc char *ipmReport(int carrier, int slot);
+epicsShareFunc void *ipmBaseAddr(int carrier, int slot, ipac_addr_t space);
+epicsShareFunc int ipmIrqCmd(int carrier, int slot, 
+		int irqNumber, ipac_irqCmd_t cmd);
+epicsShareFunc int ipmIntConnect(int carrier, int slot, int vector, 
 		void (*routine)(int parameter), int parameter);
 
 

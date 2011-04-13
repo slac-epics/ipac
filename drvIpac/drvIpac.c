@@ -1,7 +1,7 @@
 /*******************************************************************************
 
 Project:
-    CAN Bus Driver for EPICS
+    IndustryPack Driver Interface for EPICS
 
 File:
     drvIpac.c
@@ -15,9 +15,9 @@ Author:
 Created:
     3 July 1995
 Version:
-    drvIpac.c,v 1.12 2004/12/15 23:00:58 anj Exp
+    $Id: drvIpac.c 177 2008-11-11 20:41:45Z anj $
 
-Copyright (c) 1995-2000 Andrew Johnson
+Copyright (c) 1995-2007 Andrew Johnson
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -36,18 +36,17 @@ Copyright (c) 1995-2000 Andrew Johnson
 *******************************************************************************/
 
 
-#ifndef NO_EPICS
-#  include "drvSup.h"
-#  include "epicsExport.h"
-#endif
-
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-#include <vxLib.h>
-#include <intLib.h>
-#include <iv.h>
+
+#include <drvSup.h>
+#include <epicsStdio.h>
+#include <epicsExport.h>
+#include <cantProceed.h>
+#include <devLib.h>
+#include <iocsh.h>
+
 #include "drvIpac.h"
 
 
@@ -61,8 +60,8 @@ struct carrierInfo {
 };
 
 LOCAL struct {
-    ushort_t number;
-    ushort_t latest;
+    int number;
+    int latest;
     struct carrierInfo info[IPAC_MAX_CARRIERS];
 } carriers = {
     0, USHRT_MAX
@@ -78,9 +77,9 @@ LOCAL ipac_carrier_t nullCarrier = {
 };
 
 
-#ifndef NO_EPICS
+/* Driver Support Entry Table */
 
-/* EPICS Driver Support Entry Table */
+LOCAL int ipacInitialise(int after);
 
 struct drvet drvIpac = {
     2, 
@@ -89,7 +88,20 @@ struct drvet drvIpac = {
 };
 epicsExportAddress(drvet, drvIpac);
 
-#endif
+
+/* iocsh command table and registrar */
+
+static const iocshArg ipacReportArg0 = { "interest", iocshArgInt};
+static const iocshArg * const ipacReportArgs[1] = {&ipacReportArg0};
+static const iocshFuncDef ipacReportFuncDef = {"ipacReport",1,ipacReportArgs};
+static void ipacReportCallFunc(const iocshArgBuf *args) {
+    ipacReport(args[0].ival);
+}
+
+void ipacRegistrar(void) {
+    iocshRegister(&ipacReportFuncDef,ipacReportCallFunc);
+}
+epicsExportRegistrar(ipacRegistrar);
 
 
 /*******************************************************************************
@@ -200,7 +212,7 @@ Returns:
 
 */
 
-ushort_t ipacLatestCarrier(void)
+int ipacLatestCarrier(void)
 {
     return carriers.latest;
 }
@@ -223,18 +235,20 @@ Returns:
     0 = OK,
     S_IPAC_badAddress = Bad carrier or slot number,
     S_IPAC_noModule = No module installed,
-    S_IPAC_noIpacId = "IPAC" identifier not found
+    S_IPAC_noIpacId = "IPAC"/"VITA4 " identifier not found
 
 */
 
 int ipmCheck (
-    ushort_t carrier, 
-    ushort_t slot
+    int carrier,
+    int slot
 ) {
     ipac_idProm_t *id;
-    ushort_t dummy;
+    epicsUInt16 word;
 
-    if (carrier >= carriers.number ||
+    if (carrier < 0 ||
+	carrier >= carriers.number ||
+	slot < 0 ||
 	slot >= carriers.info[carrier].driver->numberSlots) {
 	return S_IPAC_badAddress;
     }
@@ -244,27 +258,35 @@ int ipmCheck (
 	return S_IPAC_badDriver;
     }
 
-    if (vxMemProbe((void *)&id->asciiI, READ, sizeof(dummy), (char *)&dummy)) {
+    if (devReadProbe(sizeof(word), (void *)&id->asciiI, (char *)&word)) {
 	return S_IPAC_noModule;
     }
-    
-    /*
-     * The following code is deliberately de-optimized to fix a problem with
-     * a particular GPIB module which can't handle the back-to-back accesses
-     * that the compiler generates if you combine the conditions in one if.
-     */
-    
-    if ((id->asciiI & 0xff) != 'I') {
+    if ((word & 0xff) != 'I') {
 	return S_IPAC_noIpacId;
     }
+
+    /*
+     * The Format-1 check is deliberately de-optimized to fix a problem with
+     * one particular IP module which can't handle the back-to-back accesses
+     * that the cc68k compiler generates if the "IPAC" ID is tested in a
+     * single if() statement.  Format-2 modules should be Ok though.
+     */
+
     if ((id->asciiP & 0xff) != 'P') {
+	/* Format-2 ID Prom? */
+	ipac_idProm2_t *id2 = (ipac_idProm2_t *) id;
+	if (id2->asciiVI == ('V' << 8 | 'I') &&
+	    id2->asciiTA == ('T' << 8 | 'A') &&
+	    id2->ascii4_ == ('4' << 8 | ' ') ) {
+	    return OK;
+	}
 	return S_IPAC_noIpacId;
     }
     if ((id->asciiA & 0xff) != 'A') {
 	return S_IPAC_noIpacId;
     }
-    dummy = id->asciiC & 0xff;
-    if ((dummy != 'C') && (dummy != 'H')) {
+    word = id->asciiC & 0xff;
+    if ((word != 'C') && (word != 'H')) {
 	return S_IPAC_noIpacId;
     }
 
@@ -275,27 +297,28 @@ int ipmCheck (
 /*******************************************************************************
 
 Routine:
-    checkCRC
+    checkCRC_8
 
 Function:
-    Calculate the CRC of the IDprom at the given address.
+    Calculate the CRC of the Format-1 IDprom at the given address.
 
 Description:
     Generates an industry standard CRC of the ID Prom data as described  in the
-    Industry Pack specification.  The CRC byte in the  Prom (at address 0x17)
-    is set to zero for the purpose of calculating  the CRC.
+    Industry Pack specification.  The CRC byte in the Prom (at address 0x17)
+    is read as zero for the purpose of calculating  the CRC.
 
 Returns:
     The low 8 bits of the calculated CRC value.
 
 */
 
-LOCAL int checkCRC (
-    uint16_t *data, 
-    ushort_t length
+LOCAL int checkCRC_8 (
+    epicsUInt16 *data,
+    int length
 ) {
-    uint_t i, crc = 0xffff;
-    uint16_t mask;
+    int i;
+    epicsUInt32 crc = 0xffff;
+    epicsUInt16 mask;
 
     for (i = 0; i < length; i++) {
 	mask = 0x80;
@@ -303,15 +326,59 @@ LOCAL int checkCRC (
 	    if ((data[i] & mask) && (i != 0xb)) {
 		crc ^= 0x8000;
 	    }
-	    crc += crc;
-	    if (crc > 0xffff) {
-		crc = (crc & 0xffff) ^ 0x1021;
+	    crc <<= 1;
+	    if (crc & 0x10000) {
+		crc ^= 0x11021;
 	    }
 	    mask >>= 1;
 	}
     }
 
     return (~crc) & 0xff;
+}
+
+
+/*******************************************************************************
+
+Routine:
+    checkCRC16
+
+Function:
+    Calculate the CRC of the Format-2 IDprom at the given address.
+
+Description:
+    Generates an industry standard CRC of the ID Prom data as described  in the
+    Industry Pack specification.  The CRC word in the Prom (at address 0x18)
+    is read as zero for the purpose of calculating  the CRC.
+
+Returns:
+    The low 16 bits of the calculated CRC value.
+
+*/
+
+LOCAL int checkCRC16 (
+    epicsUInt16 *data,
+    int length
+) {
+    int i;
+    epicsUInt32 crc = 0xffff;
+    epicsUInt16 mask;
+
+    for (i = 0; i < length; i++) {
+	mask = 0x8000;
+	while (mask) {
+	    if ((data[i] & mask) && (i != 0xc)) {
+		crc ^= 0x8000;
+	    }
+	    crc <<= 1;
+	    if (crc & 0x10000) {
+		crc ^= 0x11021;
+	    }
+	    mask >>= 1;
+	}
+    }
+
+    return (~crc) & 0xffff;
 }
 
 
@@ -333,20 +400,19 @@ Returns:
     0 = OK,
     S_IPAC_badAddress = Bad carrier or slot number,
     S_IPAC_noModule = No module installed,
-    S_IPAC_noIpacId = "IPAC" identifier not found
+    S_IPAC_noIpacId = "IPAC"/"VITA4" identifier not found
     S_IPAC_badCRC = CRC Check failed,
     S_IPAC_badModule = Manufacturer or model IDs wrong
 
 */
 
 int ipmValidate (
-    ushort_t carrier, 
-    ushort_t slot,
-    uchar_t manufacturerId, 
-    uchar_t modelId
+    int carrier,
+    int slot,
+    int manufacturerId,
+    int modelId
 ) {
     ipac_idProm_t *id;
-    int crc;
     int status;
 
     status = ipmCheck(carrier, slot);
@@ -355,14 +421,31 @@ int ipmValidate (
     }
 
     id = (ipac_idProm_t *) ipmBaseAddr(carrier, slot, ipac_addrID);
-    crc = checkCRC((uint16_t *) id, id->bytesUsed & 0xff);
-    if (crc != (id->CRC & 0xff)) {
-	return S_IPAC_badCRC;
-    }
+    if ((id->asciiP & 0xff) == 'P') {
+	/* Format-1 ID Prom */
+	int crc = checkCRC_8((epicsUInt16 *) id, id->bytesUsed & 0xff);
+	if (crc != (id->CRC & 0xff)) {
+	    return S_IPAC_badCRC;
+	}
 
-    if ((id->manufacturerId & 0xff)!= manufacturerId ||
-	(id->modelId & 0xff) != modelId) {
-	return S_IPAC_badModule;
+	if ((id->manufacturerId & 0xff)!= manufacturerId ||
+	    (id->modelId & 0xff) != modelId) {
+	    return S_IPAC_badModule;
+	}
+    } else {
+	/* Format-2 ID Prom, CRC optional */
+	ipac_idProm2_t *id2 = (ipac_idProm2_t *) id;
+	int crc = id2->CRC;
+	if (crc &&
+	    crc != checkCRC16((epicsUInt16 *) id2, id2->bytesUsed)) {
+	    return S_IPAC_badCRC;
+	}
+
+	if (((id2->manufacturerIdHigh & 0xff) << 16 | id2->manufacturerIdLow)
+	        != manufacturerId ||
+	    id2->modelId != modelId) {
+	    return S_IPAC_badModule;
+	}
     }
 
     return OK;
@@ -392,13 +475,13 @@ Sample Output:
 */
 
 char *ipmReport (
-    ushort_t carrier, 
-    ushort_t slot
+    int carrier,
+    int slot
 ) {
     static char report[IPAC_REPORT_LEN+32];
     int status;
 
-    sprintf(report, "C%hd S%hd : ", carrier, slot);
+    sprintf(report, "C%d S%d : ", carrier, slot);
 
     status = ipmCheck(carrier, slot);
     if (status == S_IPAC_badAddress) {
@@ -408,14 +491,27 @@ char *ipmReport (
 
     if (status == S_IPAC_noModule) {
 	strcat(report, "No Module");
+    } else if (status == S_IPAC_noIpacId) {
+	strcat(report, "No IPAC ID");
     } else {
 	ipac_idProm_t *id;
-	char module[16];
 
 	id = (ipac_idProm_t *) ipmBaseAddr(carrier, slot, ipac_addrID);
-	sprintf(module, "%#2.2hx/%#2.2hx", id->manufacturerId & 0xff,
-		id->modelId & 0xff);
-	strcat(report, module);
+	if ((id->asciiP & 0xff) == 'P') {
+	    /* Format-1 ID Prom */
+	    char module[10];
+	    epicsSnprintf(module, sizeof(module), "0x%2.2x/0x%2.2x",
+			  id->manufacturerId & 0xff, id->modelId & 0xff);
+	    strcat(report, module);
+	} else {
+	    /* Format-2 ID Prom */
+	    char module[16];
+	    ipac_idProm2_t *id2 = (ipac_idProm2_t *) id;
+	    epicsSnprintf(module, sizeof(module), "0x%2.2x%4.4x/0x%4.4x",
+			  id2->manufacturerIdHigh & 0xff,
+			  id2->manufacturerIdLow, id2->modelId);
+	    strcat(report, module);
+	}
     }
 
     if (carriers.info[carrier].driver->report != NULL) {
@@ -455,11 +551,13 @@ Returns:
 */
 
 void *ipmBaseAddr (
-    ushort_t carrier, 
-    ushort_t slot,
+    int carrier, 
+    int slot,
     ipac_addr_t space
 ) {
-    if (carrier >= carriers.number ||
+    if (carrier < 0 ||
+	carrier >= carriers.number ||
+	slot < 0 ||
 	slot >= carriers.info[carrier].driver->numberSlots) {
 	return NULL;
     }
@@ -491,14 +589,17 @@ Returns:
 */
 
 int ipmIrqCmd (
-    ushort_t carrier, 
-    ushort_t slot, 
-    ushort_t irqNumber, 
+    int carrier,
+    int slot,
+    int irqNumber,
     ipac_irqCmd_t cmd
 ) {
-    if (irqNumber > 1 ||
+    if (carrier < 0 ||
 	carrier >= carriers.number ||
-	slot >= carriers.info[carrier].driver->numberSlots) {
+	slot < 0 ||
+	slot >= carriers.info[carrier].driver->numberSlots ||
+	irqNumber < 0 ||
+	irqNumber > 1) {
 	return S_IPAC_badAddress;
     }
 
@@ -517,15 +618,18 @@ Function:
 
 Description:
     Checks input parameters, then passes the request to the carrier driver 
-    routine.  If no carrier routine is provided it calls the standard vxWorks
-    intConnect routine instead.  This is not quite a straight replacement for
-    intConnect; as well as providing the carrier and slot numbers the module
-    driver must not use the INUM_TO_IVEC() macro but just give the vector
-    number.
+    routine.  If no carrier routine is provided it calls the standard devLib
+    devConnectInterruptVME routine instead.  This is not quite a straight
+    replacement for devConnectInterruptVME though, as drvIpac was designed
+    for vxWorks which assumes that the parameter to the ISR is an integer,
+    whereas devLib assumes it is a void*.  On vxWorks we know we can just
+    cast freely between int and a void* (devLib does this too), but this is
+    not portable so on other OSs we allocate a small structure to hold the
+    real data for the ISR.
 
-    VxWorks' interrupt vectoring mechanism varies between bus types, and this
+    Interrupt mechanisms vary between different bus types, and this routine
     routine allows a module driver to connect its routine to an interrupt
-    vector from a  particular IPAC module without knowing the requirements of
+    vector from a particular IPAC module without knowing the requirements of
     the particular bus type.  Some carrier drivers will need to maintain a
     private interrupt dispatch table if the bus type (i.e. ISA) does not
     support interrupt vectoring.
@@ -535,22 +639,46 @@ Returns:
     S_IPAC_badAddress = illegal carrier, slot or vector
 
 */
+
+#ifndef vxWorks
+struct intData {
+    void (*routine)(int parameter);
+    int parameter;
+};
+LOCAL void intShim(void *parm) {
+    struct intData *pisr = (struct intData *) parm;
+    pisr->routine(pisr->parameter);
+}
+#endif
+
 int ipmIntConnect (
-	ushort_t carrier, 
-	ushort_t slot, 
-	ushort_t vecNum, 
+	int carrier, 
+	int slot, 
+	int vecNum, 
 	void (*routine)(int parameter), 
 	int parameter
 ) {
-    if (vecNum > 0xff ||
-    	carrier >= carriers.number ||
-	slot >= carriers.info[carrier].driver->numberSlots) {
+    if (carrier < 0 ||
+	carrier >= carriers.number ||
+	slot < 0 ||
+	vecNum < 0 ||
+	vecNum > 0xff) {
 	return S_IPAC_badAddress;
     }
 
-    /* Use intConnect if carrier driver doesn't provide one */
+    /* If the carrier driver doesn't provide a suitable routine... */
     if (carriers.info[carrier].driver->intConnect == NULL) {
-    	return intConnect (INUM_TO_IVEC((int)vecNum), routine, parameter);
+#ifdef vxWorks
+	/* We know casting int <--> void* works */
+	return devConnectInterrupt(intVME, vecNum, (void (*)(void *))routine,
+				      (void *)parameter);
+#else
+	struct intData *pisr = (struct intData *) mallocMustSucceed(
+		sizeof(struct intData), "ipmIntConnect");
+	pisr->routine = routine;
+	pisr->parameter = parameter;
+	return devConnectInterrupt(intVME, vecNum, intShim, (void *)pisr);
+#endif
     }
 
     return carriers.info[carrier].driver->intConnect(
@@ -582,7 +710,7 @@ Returns:
 int ipacReport (
     int interest
 ) {
-    ushort_t carrier, slot;
+    int carrier, slot;
 
     for (carrier=0; carrier < carriers.number; carrier++) {
 	printf("  IP Carrier %2d: %s, %d slots\n", carrier, 
@@ -633,7 +761,7 @@ Returns:
 
 */
 
-int ipacInitialise (
+LOCAL int ipacInitialise (
     int after
 ) {
     return OK;

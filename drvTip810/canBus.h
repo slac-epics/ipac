@@ -14,7 +14,7 @@ Author:
 Created:
     25 July 1995
 Version:
-    canBus.h,v 1.7 2002/04/17 19:30:48 anj Exp
+    $Id: canBus.h 177 2008-11-11 20:41:45Z anj $
 
 Copyright (c) 1995-2000 Andrew Johnson
 
@@ -38,6 +38,10 @@ Copyright (c) 1995-2000 Andrew Johnson
 #ifndef INCcanBusH
 #define INCcanBusH
 
+#include "epicsTypes.h"
+#include "epicsTimer.h"
+#include "shareLib.h"
+
 
 #define CAN_IDENTIFIERS 2048
 #define CAN_DATA_SIZE 8
@@ -56,43 +60,49 @@ Copyright (c) 1995-2000 Andrew Johnson
 #define S_can_noDevice		(M_can| 3) /*CAN bus name does not exist*/
 #define S_can_noMessage 	(M_can| 4) /*no matching CAN message callback*/
 
+typedef epicsUInt16 canID_t;
+typedef struct canBusID_s *canBusID_t;
+
 typedef struct {
-    ushort_t identifier;	/* 0 .. 2047 with holes! */
-    enum { 
+    canID_t identifier;		/* 0 .. 2047 with holes! */
+    enum {
 	SEND = 0, RTR = 1
     } rtr;			/* Remote Transmission Request */
-    uchar_t length;		/* 0 .. 8 */
-    uchar_t data[CAN_DATA_SIZE];
+    epicsUInt8 length;		/* 0 .. 8 */
+    epicsUInt8 data[CAN_DATA_SIZE];
 } canMessage_t;
 
 typedef struct {
     char *busName;
-    int timeout;
-    ushort_t identifier;
-    ushort_t offset;
-    long parameter;
+    double timeout;
+    canID_t identifier;
+    epicsUInt16 offset;
+    epicsInt32 parameter;
     char *paramStr;
-    void *canBusID;
+    canBusID_t canBusID;
 } canIo_t;
 
-typedef void canMsgCallback_t(void *pprivate, canMessage_t *pmessage);
+typedef void canMsgCallback_t(void *pprivate, const canMessage_t *pmessage);
 typedef void canSigCallback_t(void *pprivate, int status);
 
 
-extern int canSilenceErrors;	/* Really meant for EPICS use only */
+extern int canSilenceErrors;
+extern epicsTimerQueueId canTimerQ;
 
-extern int canOpen(const char *busName, void **pcanBusID);
-extern int canBusReset(const char *busName);
-extern int canBusStop(const char *busName);
-extern int canBusRestart(const char *busName);
-extern int canRead(void *canBusID, canMessage_t *pmessage, int timeout);
-extern int canWrite(void *canBusID, canMessage_t *pmessage, int timeout);
-extern int canMessage(void *canBusID, ushort_t identifier, 
+epicsShareFunc int canOpen(const char *busName, canBusID_t *pbusID);
+epicsShareFunc int canBusReset(const char *busName);
+epicsShareFunc int canBusStop(const char *busName);
+epicsShareFunc int canBusRestart(const char *busName);
+epicsShareFunc int canRead(canBusID_t busID, canMessage_t *pmessage, double timeout);
+epicsShareFunc int canWrite(canBusID_t busID, const canMessage_t *pmessage,
+		    double timeout);
+epicsShareFunc int canMessage(canBusID_t busID, canID_t identifier, 
 		      canMsgCallback_t callback, void *pprivate);
-extern int canMsgDelete(void *canBusID, ushort_t identifier, 
+epicsShareFunc int canMsgDelete(canBusID_t busID, canID_t identifier, 
 			canMsgCallback_t callback, void *pprivate);
-extern int canSignal(void *canBusID, canSigCallback_t callback, void *pprivate);
-extern int canIoParse(char *canString, canIo_t *pcanIo);
+epicsShareFunc int canSignal(canBusID_t busID, canSigCallback_t callback,
+		     void *pprivate);
+epicsShareFunc int canIoParse(char *canString, canIo_t *pcanIo);
 
 
 #endif /* INCcanBusH */
