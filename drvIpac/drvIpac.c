@@ -15,7 +15,7 @@ Author:
 Created:
     3 July 1995
 Version:
-    $Id: drvIpac.c 177 2008-11-11 20:41:45Z anj $
+    drvIpac.c,v 1.15 2007/08/21 19:27:37 anj Exp
 
 Copyright (c) 1995-2007 Andrew Johnson
 

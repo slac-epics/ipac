@@ -1,148 +1,117 @@
-/*******************************************************************************
+/* $Id: drvHy8002.c,v 1.2 2007/08/30 19:33:46 luchini Exp $
+   Implement an IPAC carrier interface as defined
+   by Andrew Johnson <anjohnson@iee.org>
+   for the Hytec 8002 carrier board.
 
-Project:
-    Hytec 8002 Carrier Driver for EPICS
+   Walter Scott (aka Scotty), HyTec Electronics Ltd,
+   Reading, Berks., UK
+   http://www.hytec-electronics.co.uk
+*/
 
-File:
-    drvHy8002.c
+/*
+ * March 2006 - Doug Murray
+ * added OSI calls
+ * ported to EPICS 3.14.8.2
+ */
 
-Description:
-    IPAC Carrier Driver for the Hytec 8002 IndustryPack Carrier VME board, 
-    it provides the interface between IPAC driver and the hardware.  
-    This carrier is 6U high and can support VME Extended mode addresses. 
-    The carrier support 4 sites of IP cards. It can be configured to use 
-    any of the 7 interrupt levels (1 ~ 7). It has hotswap capability but 
-    during the past, it was experienced not too be much useful in 
-    practical. As a result, this version takes this part out of the loop.
-
-Author:
-    Oringinal developer:   Walter Scott (aka Scotty), HyTec Electronics Ltd,
-    Reading, Berks., UK
-    http://www.hytec-electronics.co.uk
-    Current developer: Jim Chen, HyTec Electronics Ltd     
-    The code is based on Andrew Johnson's <anjohnson@iee.org>
-    drvTvme200.c.
-Created:
-    20/11/2002 first version.
-    24/05/2010 This new version.
-Version:
-    $Id: drvHy8002.c 200 2010-05-24 13:00$
-
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
-
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Lesser General Public License for more details.
-
-    You should have received a copy of the GNU Lesser General Public
-    License along with this library; if not, write to the Free Software
-    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
-
-Modifications:
-    20-Nov-2002  Walter Scott   First version with hotswap
-    24-May-2010  Jim Chen       Second version without hotswap
-    07-July-2010 Jim Chen       1.Removed VxWorks dependence
-                                2.Fixed a couple of bugs in arguments parsing routine. 
-                                3.Added comments. 
-                                4.Changed Hy8002CarrierInfo to ipacHy8002CarrierInfo for consistency
-                                5.ipacAddHy8002 now returns latest carrier number if successful
-                                6.Tidy up the return value for success and errors
-    20-August-2010 Jim Chen     Modified checkprom routine to check both configuration ROM space and GreenSpring spaces.
-								Before this driver only checks the ID and model in GreenSpring space
-								and other version of 8002 drivers check only in configuration ROM.
-    24-August-2010 Jim Chen     Added interrupt connection routine. This used to be missing so that 
-								all IP module drivers have to use devLib intConnectVME directly which 
-								makes the drivers hardware dependent. Implementing here makes the drivers
-								both Operating System Independent (OSI) and Hardware Architecture 
-								Independent (HAI)
-    10-November-2010 Jim Chen   Removed interrupt connection routine as Andrew Johnson suggested. Also changed 
-								devEnableInterruptLevelVME call to devEnableInterruptLevel which makse the code 
-                                more generic.
-*******************************************************************************/
+#include <epicsVersion.h>
 
 /*ANSI standard*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include <epicsMutex.h>
+#include <epicsThread.h>
+
 /*EPICS specific*/
 #include <devLib.h>
 #include <drvIpac.h>
-#include "epicsExport.h"
+#include <epicsExport.h>
+#include <iocsh.h>
 
-#include "iocsh.h"
-
-/* Hytec IDs */
-#define HYTECID    0x8003
-#define PROM_MODEL 0x8002
-#define PROM_MODEL_8003 0x8003
 #define MANUFACTURER_HYTEC	0x80
 #define HYTEC_PROM_MODEL	0x82
-#define HYTEC_PROM_MODEL_8003	0x83
 
-/* define individual bits in the carrier board's CSR register*/
-#define CSR_RESET   0x0001
-#define CSR_INTEN   0x0002
-#define CSR_CLKSEL  0x0020
-#define CSR_MEMMODE 0x0040
-#define CSR_BADDSEL 0x0080
-#define CSR_INTRELS 0x0200
-#define CSR_CD32    0x4000
-#define CSR_AB32    0x8000
+/*
+ * define individual bits in the carrier board's CSR register
+ */
+#define CSR_RESET		0x0001		/* reset status register to zeroes */
+#define CSR_INTR_ENB		0x0002		/* enable carrier interrupts */
+#define CSR_INTR_LEV_MASK	0x001C		/* VME interrupt level bits */
+#define    CSR_INTR_LEVEL(lev)		(((lev) << 2) & CSR_INTR_LEV_MASK)
+#define CSR_32MHZ_CLOCK		0x0020		/* 32MHz clock when set, 8MHz when clear */
+#define CSR_USE_MEM_OFFSET	0x0040		/* use memory offset register when set, use geographic addressing when clear */
+#define CSR_IP_MEM_MASK		0x0180		/* */
+#define    CSR_IP_MEM_1MB		0x0000	/* IP Cards with 1Mb Memory range */
+#define    CSR_IP_MEM_2MB		0x0080	/* IP Cards with 2Mb Memory range */
+#define    CSR_IP_MEM_4MB		0x0100	/* IP Cards with 4Mb Memory range */
+#define    CSR_IP_MEM_8MB		0x0180	/* IP Cards with 8Mb Memory range */
+#define CSR_IP_MEM_SIZE(mem)		(((mem) << 7) & CSR_IP_MEM_MASK)
+#define CSR_IP_CD_32BIT		0x4000		/* enable 32 Bit addressing for IP card sites C and D */
+#define CSR_IP_AB_32BIT		0x8000		/* enable 32 Bit addressing for IP card sites A and B */
 
-#define CSR_INTSELSHIFT 2
-#define CSR_IPMEMSHIFT  7
-#define CSROFF     ~(CSR_INTEN)
+#define CSR_IPMEMSHIFT 		7
 
-/* Characteristics of the card */
-#define NUMIPSLOTS 4                            /* number of IP slot */
-#define IP_MEM_SIZE 0x0100                      /* the memory size reserved for an IP module (A16) */
-#define ONEMB 0x100000                          /* one MB : reserve so much space for IP RAM (A32) */
+
+/* the memory size reserved for an IP module (A16)*/
+#define IP_MEM_SIZE 0x0100
+
+/*one MB : reserve so much space for IP RAM (A32)*/
+#define ONEMB 0x100000
+
+/*the 8002 hotswap interrupt level is hardwired to 7*/
+#define CARR_INTLEVEL 7
+
 #define ERR -1
-#define VME_MEM_SIZE 0xA0                       /* the size of the memory to register for this carrier board.
-                                                Don't make this too big or it will interfere with the
-                                                memory space of the IP cards. */
 
-/* prototype define */
-typedef unsigned short word;
-typedef unsigned int longword;
+/*
+ * structure used to keep track of a carrier card.
+ * We also keep a list of all Hy8002 carriers (_CarrierList)
+ * for Hotswap support (scanning)
+*/
+struct PrivateInfo
+	{
+        struct PrivateInfo *next;
+        unsigned short vmeslotnum;
+        unsigned short IPintlevel;
+        unsigned short HSintnum;
 
-/* private structure used to keep track of a carrier card.
- We also keep a list of all Hy8002 carriers (carlist)
- for Hotswap support (scanning) */
-typedef struct privinfo{
-  struct privinfo* next;
-  word vmeslotnum;                              /* vme slot */
-  word carrier;                                 /* carrier number */
-  word IPintlevel;                              /* interrupt level */
-  int baseadr;                                  /* base address */
-  int model;                                    /* carrier model, 8002/8003 */
-  int clock;                                    /* carrier clock frequency */
-  int intrels;                                  /* interrupt release on acknowledgement or on register read */
-  word ipmemmode;                               /* 1,2,4 or 8 MB RAM per IP slot */
-  word isgeomem;                                /* the card uses geographical IP card addressing. Please note, 
-                                                due to the desing issue, Hytec 8002 cannot disable geographical addressing
-                                                if VME64x crate is used. Yet if VME64 or VME is used, then a set of jumpers
-                                                on board can be set for the base address of the carrier */
-  /*these reflect the hardware registers*/
-  word memoffs;                                 /* memory offset if non-geographical addressing is used */
-  word csrcb;                                   /* CSR register */
-  word ipintsel;                                /* IP cards interrupt settings in CSR */
-  int ipadresses[NUMIPSLOTS][IPAC_ADDR_SPACES]; /* address mapping */
-}privinfo;
+        int baseaddr;
+        unsigned short ispresent;
+
+        unsigned short ipmemmode;         /*1,2,4 or 8 MB RAM per IP slot */
+        unsigned short isgeomem;          /*the card uses geographical IP card addressing */
+
+        unsigned short ab32mode;          /*these are 1 if we have double wide modes on */
+        unsigned short cd32mode;
+
+        /*
+           these reflect the hardware registers
+         */
+        unsigned short memoffs;           /* this one is _very_ confusing; keep for backwards compat */
+        unsigned short membase;
+        unsigned short csrcb;
+        unsigned short ipintsel;
+
+        unsigned short carrint;
+        void *iobases[4];
+        void *membases[4];
+	};
+
+typedef struct PrivateInfo PrivateInfo;
 
 
 /************GLOBAL VARIABLES********************/
-static privinfo* carlist=NULL;
-static char* charid="drvHy8002";
+static PrivateInfo *_CarrierList = NULL;
+static char *_IDString = "drvHy8002";
+static int _HotSwapAvailable = 0;
+
+static epicsMutexId _ListLock;     /*semaphore for _CarrierList */
 
 /*these are all offsets from the A16 base address*/
 #define CARR_IPSTAT  0x00
-#define CARR_MEMOFF  0x04                       /* added by JC 08-04-10 for memory offset register */
+#define CARR_MEMBASE 0x04
 #define CARR_CSR     0x08
 #define CARR_INTSEL  0x0C
 #define CARR_HOTSWAP 0x10
@@ -156,760 +125,990 @@ static char* charid="drvHy8002";
 #define CARR_NUMB    0x95
 #define CARR_CRC     0x97
 
-/* function prototype */
-static int regaddr(privinfo* pv);
-static int checkVMEprom(unsigned int base);
-static int scanparm(char* cp, int* vmeslotnum, int* IPintlevel, int* ipmem, int* ipclck, int* roak, int* domemreg, int* memoffs);
-int ipacHy8002CarrierInfo(epicsUInt16 carrier);
-
-/*******************************************************************************
-
-Routine:
-    initialise
-
-Purpose:
-    Registers a new Hy8002 with addresses and interrupt given by cardParams
-
-Description:
-    Reads the parameter string and set up the 8002 registers for initialisation.
-
-Parameters:
-    *cp: The parameter string please refer to ipacAddHy8002 routine.   
-    **cPrivate: private info structure
-    carrier: the latest added carrier number
-
-Returns:
-    OK(0): if successful 
-    Error code otherwise.
-
+/*
+ * the size of the memory to register for this carrier board.
+ * Don't make this too big or it will interfere with the
+ * memory space of the IP cards.
 */
-static int initialise(const char *cp, void **cPrivate, epicsUInt16 carrier)
-{
-    int vmeslotnum, IPintlevel;
-    unsigned int carbase;
-    size_t ccbase;
-    int res,ipmem,ipclck,roak,domemreg,memoffs;
-    privinfo* pv;
-    word csr;
-    long status;
-    /*begin*/
+#define VME_MEM_SIZE 0xA0
 
-    res=scanparm(cp, &vmeslotnum, &IPintlevel,
-	       &ipmem,&ipclck,&roak,&domemreg,&memoffs);
-    if (res!=OK) return res;
-
-    ccbase= (size_t)((vmeslotnum<<11)+(1<<10));
-    res=devRegisterAddress(charid,atVMEA16,
-			 ccbase,
-			 VME_MEM_SIZE,(void*)(&carbase));
-    if (res!=OK) 
-        return S_IPAC_badAddress;
-
-    /*see if this really is a HyTec 8002*/
-    res = checkVMEprom(carbase);
-    if (res!=OK){
-        res=devUnregisterAddress(atVMEA16,ccbase,charid);
-        return res;
-    }
-
-    pv=(privinfo*)calloc(1,sizeof(privinfo));
-    if(pv==NULL) return S_IPAC_noMemory;
-
-    /*determine the CSR*/
-    csr=IPintlevel<<CSR_INTSELSHIFT;
-
-    /* if (domemreg)csr|=CSR_BADDSEL; */ /* a bug, to use memory offset, need to set bit6, not 8. JC 08-04-10 */
-    if (domemreg) csr|=CSR_MEMMODE;
-    if (ipclck == 32) csr|=CSR_CLKSEL;                  /* this clock bit was missing before. JC 26-05-2010 */
-    if (roak) csr|=CSR_INTRELS;                         /* this ROAK or RORA bit was also missing before. JC 26-05-2010 */
-
-    switch (ipmem){
-        case 1:
-            break;
-        case 2:
-            csr|=(1<<CSR_IPMEMSHIFT);
-            break;
-        case 4:
-            csr|=(2<<CSR_IPMEMSHIFT);
-            break;
-        case 8:
-            csr|=(3<<CSR_IPMEMSHIFT);
-            break;
-        default:
-            printf("%s: INTERNAL ERROR 1\n",charid);
-            return S_IPAC_badAddress;
-    }
-
-    /*in the ipmem==2 with geographical addressing,
-    vmeslotnum must be [0..15] */
-    if (ipmem==2 && vmeslotnum>15){
-        printf("%s: vmeslot number must be <16 when geographical addressing with 2MB IP RAM size",charid);
-        return S_IPAC_badAddress;
-    }
-    if (ipmem>=4 && domemreg==0){
-        printf("%s: geographical adressing is not supported with 4MB IP RAM size",charid);
-        return S_IPAC_badAddress;
-    }
-
-    pv->next=carlist;carlist=pv;
-
-    pv->vmeslotnum=vmeslotnum;
-    pv->carrier=carrier;
-    pv->IPintlevel=IPintlevel;
-    pv->baseadr=carbase;
-    pv->memoffs=memoffs;
-    pv->clock=ipclck;
-    pv->isgeomem=(domemreg==0);
-    pv->csrcb=csr;
-    pv->ipintsel=0;
-    pv->ipmemmode=ipmem;
-
-    *((word*)(pv->baseadr+CARR_CSR   )) =pv->csrcb;                 /* set csr register */
-    if(!pv->isgeomem)                                               /* This part is missing before. added by JC 08-04-10 */
-        *((word*)(pv->baseadr+CARR_MEMOFF   )) =pv->memoffs;        /* set memroy offset */
-
-    /*register the IP memory space for this card*/
-    res=regaddr(pv);
-    if (res != OK) return res;
-
-    status=devEnableInterruptLevel(intVME, IPintlevel);
-    if(status) return S_IPAC_badIntLevel;
-
-    *((word*)(pv->baseadr+CARR_INTSEL)) =pv->ipintsel;
-    
-    *cPrivate=(void*)pv;
-    return OK;
-}
-
-
-/*******************************************************************************
-
-Routine:
-    report
-
-Purpose:
-    Returns a status string for the requested slot
-
-Description:
-    This routine reports the interrupt level of the carrier card and
-    the specified IP card interrupt setting.
-
-Returns:
-    A static string containing the slot's status.
-
-*/
-static char* report(void *cPrivate, ushort_t slot){
-  /* Return string with giving status of this slot
-     static char* report(ushort_t carrier, ushort_t slot){*/
-    /*begin*/
-    privinfo *cp = (privinfo *)cPrivate;
-    static char output[IPAC_REPORT_LEN];
-    sprintf(output, "INT Level %d, INT0: %s, INT1: %s", 
-	    cp->IPintlevel,
-        (cp->ipintsel & (1 << slot)) ? "active" : "",
-	    (cp->ipintsel & (1 << (slot+4))) ? "active" : "");
-    return output;
-}
-
-
-/*******************************************************************************
-
-Routine:
-    baseAddr
-
-Purpose:
-    Returns the base address for the requested slot & address space
-
-Description:
-    Because we did all that hard work in the initialise routine, this 
-    routine only has to do a table lookup in the private settings array.
-    Note that no parameter checking is required - the IPAC driver which 
-    calls this routine handles that.
-
-Returns:
-    The requested address, or NULL if the module has no memory.
-
-*/
-
-static void* baseAddr(void *cPrivate,
-		      ushort_t slot,
-		      ipac_addr_t space)
-{
-    privinfo* pv=(privinfo*)cPrivate;
-    return (void*)pv->ipadresses[slot][space];
-}
-
-/*******************************************************************************
-
-Routine:
-    irqCmd
-
-Purpose:
-    Handles interrupter commands and status requests
-
-Description:
-    The carrier board provides a switch to select from 5 default interrupt
-    level settings, and a control register to allow these to be overridden.
-    The commands supported include setting and fetching the current interrupt
-    level associated with a particular slot and interrupt number, enabling
-    interrupts by making sure the VMEbus interrupter is listening on the
-    relevent level, and the abilty to ask whether a particular slot interrupt
-    is currently pending or not.
-
-Returns:
-    ipac_irqLevel0-7 return 0 = OK,
-    ipac_irqGetLevel returns the current interrupt level,
-    ipac_irqEnable returns 0 = OK,
-    ipac_irqPoll returns 0 = no interrupt or 1 = interrupt pending,
-    other calls return S_IPAC_notImplemented.
-
-*/
-
-static int irqCmd(void *cPrivate, ushort_t slot,
-		  ushort_t irqnum, ipac_irqCmd_t cmd)
-{
-    int retval=S_IPAC_notImplemented;
-    privinfo* cp=(privinfo*)cPrivate;
-    word ipstat,mymask;
-    word dodump=0;
-    /*begin*/
-    /*irqnumber is 0 or 1.*/
-    if (irqnum !=0 && irqnum!=1)return S_IPAC_notImplemented;
-
-    /*is the IP card valid*/
-    if (slot>3) return S_IPAC_badAddress;
-  
-    switch(cmd)
-    {
-        /*We don't allow the IP driver to set the carrier's int level.
-        It's set for the carrier in the init string*/
-        case ipac_irqLevel0:
-        case ipac_irqLevel1:
-        case ipac_irqLevel2:
-        case ipac_irqLevel3:
-        case ipac_irqLevel4:
-        case ipac_irqLevel5:
-        case ipac_irqLevel6:/* Highest priority */
-        case ipac_irqLevel7:/* Non-maskable, don't use */
-            break;
-        case ipac_irqGetLevel:
-            /* Returns level set (or hard-coded) */
-            retval=cp->IPintlevel;
-            break;
-        case ipac_irqEnable:
-            /* Required to use interrupts */
-            if (irqnum==0)
-                cp->ipintsel|=(1<<(slot));
-            else
-                cp->ipintsel|=(1<<(slot+4));
-
-            cp->csrcb|=CSR_INTEN;dodump=1;
-            retval=OK;
-            break;
-        case ipac_irqDisable:
-            /* Not necessarily supported */
-            cp->csrcb&=CSROFF;dodump=1;
-            retval=OK;
-            break;
-        case ipac_irqPoll:
-            /* Returns interrupt state */
-            ipstat=*((word*)(cp->baseadr+CARR_IPSTAT));
-            mymask=1<<(4+slot)|(1<<slot);
-            retval=ipstat&mymask;
-            break;
-        case ipac_irqSetEdge: /* Sets edge-triggered interrupts */
-        case ipac_irqSetLevel:/* Sets level-triggered (default) */
-        case ipac_irqClear:   /* Only needed if using edge-triggered */
-            break;
-        default:
-            break;
-    }/*switch*/
-
-    if (dodump){
-        *((word*)(cp->baseadr+CARR_CSR   )) =cp->csrcb;
-        *((word*)(cp->baseadr+CARR_INTSEL)) =cp->ipintsel;
-    }
-    return retval;
-}
-
-/*THIS IS THE CARRIER JUMPTABLE */
-ipac_carrier_t Hy8002={
-    "Hytec VICB8002",
-    4,
-    initialise,
-    report,
-    baseAddr,
-    irqCmd,
-    NULL
-};
-
-
-/*******************************************************************************
-
-Routine:
-    ipacAddHy8002
-
-Purpose:
-    shell command to be used in start up script
-
-Description:
-    The carrier board can be registered by using this function during 
-    the system start up.
-
-Parameters:
-    The parameter "cardParams" is a string that should comprise 2 (the first two are mandatory) 
-    to 6 parameters that are seperated by commas.   
-
-    - first parameter is the VME slot number (decimal string)
-    - second parameter is the VME interrupt level (decimal string)
-    - third parameter is a name/value pair defines the IP memory size. 
-      "IPMEM=" followed by a number "1", "2" ,"4" or "8" for 1M, 2M, 4M or 8M respectively
-    - fourth parameter is a name/value pair defines the IP module clock. 
-      "IPCLCK=" followed number either "8" or "32" for 8M or 32M respectively
-    - fiveth parameter is a name/value pair defines the type of releasing interrupt. 
-      "ROAK=1" means to release interrupt upon acknowledgement; "ROAK=0" means to release by ISR.
-    - sixth parameter defines IP memory mapping base address offset when neither geographical 
-      addressing nor jumpers are used. "MEMOFFS=128". Please refer to the user manual.
-
-    Examples:
-        IPAC1 = ipacAddHy8002("3,2") 
-            
-        where: 3 = vme slot number 3
-               2 = interrupt level 2
-
-        IPAC1 = ipacAddHy8002("3,2,IPMEM=1,IPCLCK=8,ROAK=1,MEMOFFS=2048)
-
-        where: 3 -> vme slot number 3
-               2 -> interrupt level 2
-               IPMEM=1 -> IP memory space as 1M
-               IPCLCK=8 -> IP clock is 8MHz
-               ROAK=1 -> release the interrupt on acknowledgement
-               MEMOFFS=2048 -> IP memory mapping base address offset when not using 
-                   geographical addressing (Please see manual for detail usage)
-
-        Please note, no space allowed in the parameter string
-
-Returns:
-    >=0 and < IPAC_MAX_CARRIERS (21): newly added carrier number
-    > M_ipac(600 << 16): error code
-
-*/
-int ipacAddHy8002(const char *cardParams) {
-    int rt;
-    rt = ipacAddCarrier(&Hy8002, cardParams);                       /* add 8002 carrier */
-    if(rt == OK)
-        return ipacLatestCarrier();                                 /* If added OK, return the latest carrier number */
-    else
-    	return rt;                                                  /* Otherwise return error code  */
-}
-
-static const iocshArg Hy8002Arg0 = { "cardParams",iocshArgString};
-static const iocshArg * const Hy8002Args[1] = {&Hy8002Arg0};
-static const iocshFuncDef Hy8002FuncDef = {"ipacAddHy8002", 1, Hy8002Args};
-static void Hy8002CallFunc(const iocshArgBuf *args) {
-    ipacAddHy8002(args[0].sval);
-}
-
-static const iocshArg Hy8002InfoArg0 = {"carrier", iocshArgInt};
-static const iocshArg * const Hy8002InfoArgs[1] =  {&Hy8002InfoArg0};
-static const iocshFuncDef Hy8002InfoFuncDef = {"ipacHy8002CarrierInfo", 1, Hy8002InfoArgs};
-static void Hy8002InfoCallFunc(const iocshArgBuf *args)
-{
-    ipacHy8002CarrierInfo(args[0].ival);
-}
-
-static void epicsShareAPI Hy8002Registrar(void) {
-    iocshRegister(&Hy8002FuncDef, Hy8002CallFunc);
-    iocshRegister(&Hy8002InfoFuncDef, Hy8002InfoCallFunc);
-}
-
-epicsExportRegistrar(Hy8002Registrar);
-
-
-
-
-/***** Private function part *********/
-
-
-
-/*******************************************************************************
-
-Routine: internal function
-    checkVMEprom
-
-Purpose:
-    check if the carrier is 8002 or 8003
-
-Description:
-    This function checks the carrier against a valid Hytec 8002 or 8003 card.  
-
-Parameters:
-    base: VME carrier base address.
-
-Return:
-    OK(0): if it is 8002 or 8003
-    Error code otherwise.
-
-*/
-
-#define VME_CARR_MAN1  0x22B
-#define VME_CARR_MAN2  0x22F
-
-#define VME_CARR_MOD1  0x233
-#define VME_CARR_MOD2  0x237
-
-#define VME_CARR_REVN  0x243
-#define VME_CARR_XIL1  0x247
-#define VME_CARR_XIL2  0x24B
-#define VME_CARR_XIL3  0x24F
-
-#define VME_CARR_SER1  0x2CB
-#define VME_CARR_SER2  0x2CF
-#define VME_CARR_SER3  0x2D3
-#define VME_CARR_SER4  0x2D7
-#define VME_CARR_SER5  0x2DB
-#define VME_CARR_SER6  0x2DF
-
-
-static int checkVMEprom(unsigned int base)
-{
-    char* hytecstr=" (HyTec Electronics Ltd., Reading, UK)";
-    int manid,ismodel,modelnum,ishytec;
-
-	/* This checks the ID in Configuration ROM */
-    manid=(*((char*)(base+VME_CARR_MAN1))<<8)+
-        (*((char*)(base+VME_CARR_MAN2)));
-
-/* bug fix PHO 29-1-02 
-*  manid gets sign extended on a 167
-*/
-    manid &= 0xffff;
-    ishytec=(manid==HYTECID);
-
-	/* If ID in Configuration ROM fails, also check GreenSpring space */
-	if (!ishytec)
+static void
+HWdump( PrivateInfo * pv)
 	{
-		manid = (int) (*((char *) (base + CARR_MANID)));
-		manid &= 0xff;
-		ishytec = (manid == MANUFACTURER_HYTEC);
+        int res;
+        int base = pv->baseaddr;
+
+        /*
+           IPSTAT IS READ ONLY
+           *((unsigned short*)(base+CARR_IPSTAT))=pv->ipstat;
+         */
+
+        /*
+           USE MemProbe to write these values for safety
+           *((unsigned short*)(base+CARR_CSR   )) =pv->csrcb;
+           *((unsigned short*)(base+CARR_INTSEL)) =pv->ipintsel;
+           *((unsigned short*)(base+CARR_HOTSWAP))=pv->carrint;
+         */
+        res = devWriteProbe(sizeof(unsigned short), (volatile void *) (base + CARR_MEMBASE), (const void *) &(pv->membase));
+        if(res != OK)
+        	{
+                pv->ispresent = 0;
+                return;
+        	}
+
+
+        res = devWriteProbe(sizeof(unsigned short), (volatile void *) (base + CARR_CSR), (const void *) &(pv->csrcb));
+        if(res != OK)
+        	{
+                pv->ispresent = 0;
+                return;
+        	}
+
+        res = devWriteProbe(sizeof(unsigned short), (volatile void *) (base + CARR_INTSEL), (const void *) &(pv->ipintsel));
+        if(res != OK)
+        	{
+                pv->ispresent = 0;
+                return;
+        	}
+
+        res = devWriteProbe(sizeof(unsigned short), (volatile void *) (base + CARR_HOTSWAP), (const void *) &(pv->carrint));
+        if(res != OK)
+        	{
+                pv->ispresent = 0;
+                return;
+        	}
 	}
 
-	/* This checks the model in Configuration ROM  */
-    modelnum=((int)(*((char*)base+VME_CARR_MOD1))<<8)+
-        (int)(*((char*)base+VME_CARR_MOD2));
-
-/* bug fix PHO 29-1-02 as for manid
-*/
-    modelnum &= 0xffff;
-    ismodel=((modelnum==PROM_MODEL) || (modelnum==PROM_MODEL_8003));
-
-	/* If model in Configuration ROM fails, also check GreenSpring space */
-	if(!ismodel)	
+static int
+checkprom( unsigned int base)
 	{
-		modelnum = (int) (*((char *) base + CARR_MODID));
-		modelnum &= 0xff;
-		ismodel=((modelnum==HYTEC_PROM_MODEL) || (modelnum==HYTEC_PROM_MODEL_8003));
+        char *hytecstr = " (HyTec Electronics Ltd., Reading, UK)";
+        char *expstr = "IPAC";
+        char str[5];
+        int i;
+        int adr;
+        unsigned short modelnum, manid;
+        unsigned short expmodel = HYTEC_PROM_MODEL;
+        int strok, ismodel, ishytec, nbytes;
+
+        /*
+           begin
+         */
+        adr = base + CARR_IDENT;
+        for(i = 0; i < 4; i++)
+        	{
+                str[i] = *((char *) adr);
+                adr += 2;
+        	}
+        str[4] = 0;
+        printf("PROM header: '%4s'\n", str);
+        /*
+           compare to expected string. 
+           Note: this is a non-standard check of the carrier
+                 identification. Usually the check verifies
+                 the first 4 characters but hytec uses the 
+                 last char for a carrier version number.
+                 Therefoer, only 3 char are checked below.
+         */
+        i = 0;
+        while(i < 3 && expstr[i] == str[i])
+                i++;
+        strok = (i == 3);
+
+        manid = (int) (*((char *) (base + CARR_MANID)));
+        ishytec = (manid == MANUFACTURER_HYTEC);
+        printf("PROM manufacturer ID: 0x%02X", manid);
+        if(ishytec)
+                printf(hytecstr);
+
+        modelnum = (int) (*((char *) base + CARR_MODID));
+        ismodel = (modelnum == expmodel);
+        printf("\nPROM model #: 0x%02hx, rev. 0x%02hx\n", modelnum, (int) (*((char *) (base + CARR_REVN))));
+        printf("PROM driver ids: 0x%02hx, 0x%02hx\n", (int) (*((char *) (base + CARR_DRID1))), (int) (*((char *) (base + CARR_DRID2))));
+        nbytes = (int) (*((char *) (base + CARR_NUMB)));
+        printf("PROM number of bytes used: 0x%02hx (%d), CRC 0x%02hx\n", nbytes, nbytes, (int) (*((char *) (base + CARR_CRC))));
+
+        if(!strok)
+                printf("PROM INVALID PROM HEADER; EXPECTED '%s'\n", expstr);
+        if(!ishytec)
+                printf("PROM UNSUPPORTED MANUFACTURER ID;\nPROM EXPECTED 0x%08X, %s\n", MANUFACTURER_HYTEC, hytecstr);
+        if(!ismodel)
+                printf("PROM UNSUPPORTED BOARD MODEL NUMBER: EXPECTED 0x%04hx\n", expmodel);
+
+        return (strok && ishytec && ismodel);
 	}
 
-    if (!ishytec)
-		printf("PROM UNSUPPORTED MANUFACTURER ID:%x;\nPROM EXPECTED 0x%08X, %s\n",
-	       manid,HYTECID,hytecstr);
-    if(!ismodel)
-        printf("PROM UNSUPPORTED BOARD MODEL NUMBER:%x EXPECTED 0x%04hx or 0x%04hx\n",
-	       modelnum, PROM_MODEL, PROM_MODEL_8003);
-    return (ishytec && ismodel) ? OK : S_IPAC_badModule;
-}
-
-
-/*******************************************************************************
-
-Routine: internal function
-    scanparm
-
-Purpose:
-    parsing parameters
-
-Description:
-    This function parses the parameter passed by ipacAddHy8002 routine  
-    to get the vme slot number, interrupt level, IP memory size, IP clcok
-    setting, interrupt release type and memory offset for base address etc.
-
-Parameters:
-    Please refer to ipacAddHy8002 routine.
-
-Return:
-    OK(0): if successful
-    Error code otherwise.
-
+/*
+ * a: find the carrier card in this slot
+ * b: set ispresent to FALSE.
+ * c: start scanning to see when the card is replaced
+ *
+ * rememebr that we don't need semaphores in this routine,
+ * and indeed may not use them in an ISR.
 */
-static int scanparm(char* cp,
-		    int* vmeslotnum,
-		    int* IPintlevel,
-		    int* ipmem,
-		    int* ipclck,
-            int* roak,
-		    int* domemreg,
-		    int* memoffs
-		    )
-{
-    int vme=0, itr=0, ipm=0, ipc=0, ro=0, mem=0;
-    int skip=0;
-    char *pstart;
-    int count;
+static void
+carrISR( int vmeslotnum)
+	{
+        PrivateInfo *cc = _CarrierList;
 
-    if (cp == NULL || strlen(cp) == 0) {
-        return S_IPAC_badAddress;             
-    }
+        /*
+           begin
+         */
+        while( cc != NULL && cc->vmeslotnum != vmeslotnum)
+                cc = cc->next;
+        /*
+           If I am not responsible for that slot, just exit
+         */
+        if( cc == NULL)
+                return;
 
-    count = sscanf(cp, "%d,%d,%n", &vme, &itr, &skip);
-    if (count != 2){   
-        printf("********Number error. %s  num:%d\n",cp, count);
-        return S_IPAC_badAddress;     
-    }
+        cc->ispresent = FALSE;
 
-    /*vme slot number parsing*/
-    if (vme<0 || vme>21)
-    {
-        printf("********Slot error.\n");
-        return S_IPAC_badAddress;
-    }
-    else
-        *vmeslotnum = vme;
+        /*
+           start scanning...
+         */
+	}
 
-    /*Interrupt level parsing*/
-    if (itr<0 || itr>7)
-        return S_IPAC_badAddress;
-    else
-        *IPintlevel = itr;
+#define TASKDELAY  0.3          /* seconds */
 
-    cp += skip;
+static void
+POLLcarrierscan(void *unused)
+	{
+        PrivateInfo *cc;
+        int nowpresent;
+        unsigned short probedummy;
 
-    /*set defaults: 1M memeory, 8MHz clock, ROAK, do not use geographical addressing*/
-    *ipmem=1;
-    *ipclck=8;
-    *roak=0;
-    *domemreg=*memoffs=0;
-
-    /*parsing IP memory size*/
-    if((pstart=strstr(cp, "IPMEM=")) != NULL){
-        if((1 != sscanf(pstart+6, "%d", &ipm)) || (ipm !=1 && ipm !=2 && ipm !=4 && ipm !=8)){
-            return S_IPAC_badAddress;
-        }
-        *ipmem = ipm;    
-    }
-            
-    /*parsing IP clock frequency*/
-    if((pstart=strstr(cp, "IPCLCK=")) != NULL){
-        if((1 != sscanf(pstart+7, "%d", &ipc)) || (ipc !=8 && ipc !=32)){
-            return S_IPAC_badAddress;
-        }
-        *ipclck = ipc;    
-    }
-            
-    /*parsing ROAK request*/
-    if((pstart=strstr(cp, "ROAK=")) != NULL){
-        if((1 != sscanf(pstart+5, "%d", &ro)) || (ro !=0 && ro !=1)){
-            return S_IPAC_badAddress;
-        }
-        *roak = ro;    
-    }
-            
-    /*parsing memory offset*/
-    if((pstart=strstr(cp, "MEMOFFS=")) != NULL){
-        if((1 != sscanf(pstart+8, "%d", &mem)) || mem <0 || mem >(1<<17)){
-            return S_IPAC_badAddress;
-        }
-        *domemreg = 1;
-        *memoffs = mem;
-    }
-            
-    return OK;
-}
+        /*
+           begin
+         */
+        while(1)
+        	{
+                epicsThreadSleep(TASKDELAY);
+                epicsMutexLock(_ListLock);
+                cc = _CarrierList;
+                while(cc != NULL)
+                	{
+                        nowpresent = (devReadProbe(sizeof(unsigned short), (volatile const void *) (cc->baseaddr + CARR_IPSTAT), (void *) &probedummy) == OK);
+                        if(nowpresent && !cc->ispresent)
+                        	{
+                                HWdump(cc);
+                                printf("BOARD INSERTION\n");
+                                fflush(stdout);
+                        	}
+                        if(cc->ispresent && !nowpresent)
+                        	{
+                                printf("BOARD REMOVAL\n");
+                                fflush(stdout);
+                        	}
+                        cc->ispresent = nowpresent;
+                        cc = cc->next;
+                	}
+                epicsMutexUnlock(_ListLock);
+        	}                       /*while (1) */
+	}
 
 
-/*******************************************************************************
 
-Routine: internal function
-    regaddr
 
-Purpose:
-    register base address
+void
+hotSwapInit()
+	{
+        int res;
 
-Description:
-    It registers the IP carrier card memory..
+        /*
+           begin
+         */
+        if( _HotSwapAvailable)
+                return;
+        _HotSwapAvailable = TRUE;
+        res = !(_ListLock = epicsMutexCreate());
+        if(res != OK)
+        	{
+                printf("*****%s: sem_init failed! res=%d\n", _IDString, res);
+        	}
 
-Parameters:
-    *pv: private structure
+#ifndef __NO_HOTSWAP__
+        epicsThreadCreate("drvHy8002:HotSwapScan", epicsThreadPriorityHigh, 1000, POLLcarrierscan, 0);
+#else
+	printf( "%s: Hot swap feature disabled.\n", _IDString);
+#endif
+	}
 
-Return:
-    OK(0): if successful. 
-    Error code otherwise.
 
+/* Initialise carrier and return *cPrivate */
+
+static char SPACE = ' ';
+static char EQUAL = '=';
+
+void
+err(char *s)
+	{
+
+	printf( "%s\n", s);
+	}
+
+static int
+getassign(char *cp, int *i, int *ila, int len, int *val, char *varname)
+	{
+        int res;
+
+        /*
+           check for = 
+         */
+        while(*ila < len && cp[*ila] == SPACE)
+                (*ila)++;
+        if(cp[*ila] != EQUAL)
+        	{
+                err(" '=' expected");
+                return 0;
+        	}
+        *i = *ila + 1;
+        while(*i < len && cp[*i] == SPACE)
+                (*i)++;
+        if(*i == len)
+                return 0;
+        *ila = *i;
+        while(*ila < len && cp[*ila] != SPACE)
+                (*ila)++;
+        cp[*ila] = 0;
+        res = sscanf(&cp[*i], "%i", val);
+        if(res != 1)
+        	{
+                printf("illegal value %s for %s. Integer expected\n", &cp[*i], varname);
+                return 0;
+        	}
+        return 1;
+	}
+
+
+/*scan the parameters. return 1 iff successful*/
+static int
+scanparm(const char *cardParams, int *vmeslotnum, int *IPintlevel, int *HSintnum, int *ipmem, int *ab32, int *cd32, int *ipclck, int *domemreg, int *memoffs)
+	{
+        int len = strlen(cardParams);
+        int i = 0;
+        char *cp;
+        int ila;
+        int gotipclck = 0;
+        int gotipmem = 0;
+        int res, ilen;
+
+        if((cp = (char *) calloc(1, len + 1)) == NULL)
+        	{
+                printf("Cannot allocate memory for copy of configuration text.\n");
+                return 0;
+        	}
+
+        strncpy(cp, cardParams, len);
+
+        /*
+           begin
+         */
+        if(cp == NULL || len == 0)
+                return 0;
+        /*
+           vmeslotnum
+         */
+        while(i < len && cp[i] == SPACE)
+                i++;
+        if(i == len)
+                return 0;
+        ila = i;
+        while(ila < len && cp[ila] != SPACE)
+                ila++;
+        cp[ila] = 0;
+        res = sscanf(&cp[i], "%d", vmeslotnum);
+        if(res != 1)
+        	{
+                printf("illegal value %s for vmeslotnum. Integer expected\n", &cp[i]);
+                return 0;
+        	}
+        if(*vmeslotnum < 0 || *vmeslotnum > 21)
+        	{
+                printf("illegal value for vmeslotnum= %d. Must be [1..21]\n", *vmeslotnum);
+                return 0;
+        	}
+        i = ila + 1;
+
+        /*
+           IPintlevel
+         */
+        while(i < len && cp[i] == SPACE)
+                i++;
+        if(i == len)
+                return 0;
+        ila = i;
+        while(ila < len && cp[ila] != SPACE)
+                ila++;
+        cp[ila] = 0;
+        res = sscanf(&cp[i], "%d", IPintlevel);
+        if(res != 1)
+        	{
+                printf("illegal value %s for IPintlevel. Integer expected\n", &cp[i]);
+                return 0;
+        	}
+        if(*IPintlevel < 0 || *IPintlevel > 7)
+        	{
+                printf("illegal value for IPintlevel= %d. Must be [0..7]\n", *IPintlevel);
+                return 0;
+        	}
+        i = ila + 1;
+
+        /*
+           HSintnum
+         */
+        while(i < len && cp[i] == SPACE)
+                i++;
+        if(i == len)
+                return 0;
+        ila = i;
+        while(ila < len && cp[ila] != SPACE)
+                ila++;
+        cp[ila] = 0;
+        res = sscanf(&cp[i], "%d", HSintnum);
+        if(res != 1)
+        	{
+                printf("illegal value %s for HSintnum. Integer expected\n", &cp[i]);
+                return 0;
+        	}
+#ifndef __NO_HOTSWAP__
+        if(*HSintnum < 0 || *HSintnum > 255)
+        	{
+                printf("illegal value for HSintnum= %d. Must be [0..255]\n", *HSintnum);
+                return 0;
+        	}
+#else
+        if(*HSintnum > 0)
+        	{
+                printf("illegal value for HSintnum, must be -1 -- the driver was compiled with HS disabled\n");
+        	}
+#endif
+        i = ila + 1;
+
+        /*
+           set option defaults
+         */
+        *ipmem = 1;
+        *ab32 = *cd32 = 0;
+        *ipclck = 8;
+        *domemreg = *memoffs = 0;
+
+
+        /*
+           get options
+         */
+        while(i < len)
+        	{
+                while(i < len && cp[i] == SPACE)
+                        i++;
+                if(i == len)
+                        return 0;
+                ila = i;
+                while(ila < len && cp[ila] != SPACE && cp[ila] != EQUAL)
+                        ila++;
+                ilen = ila - i;
+                switch (ilen)
+                	{
+		case 4:
+			if(strncmp(&cp[i], "AB32", 4) == 0)
+				{
+				if(*ab32)
+					{
+					err("AB32 defined twice");
+					return 0;
+					}
+				*ab32 = 1;
+				break;
+				}
+			if(strncmp(&cp[i], "CD32", 4) == 0)
+				{
+				if(*cd32)
+					{
+					err("CD32 defined twice");
+					return 0;
+					}
+				*cd32 = 1;
+				break;
+				}
+			cp[ila] = 0;
+			printf("unknown option '%s'\n", &cp[i]);
+			return 0;
+		case 5:
+			if(strncmp(&cp[i], "IPMEM", 5) == 0)
+				{
+				if(gotipmem)
+					{
+					err("IPMEM defined twice");
+					return 0;
+					}
+				gotipmem = 1;
+				res = getassign(cp, &i, &ila, len, ipmem, "ipmem");
+				if(res != 1)
+					return 0;
+				if(*ipmem != 1 && *ipmem != 2 && *ipmem != 4 && *ipmem != 8)
+					{
+					printf("illegal value for ipmem= %d. Must be 1, 2, 4 or 8.\n", *ipmem);
+					return 0;
+					}
+				break;
+				}
+			printf("unknown option '%s'\n", &cp[i]);
+			return 0;
+		case 6:
+			if(strncmp(&cp[i], "IPCLCK", 6) == 0)
+				{
+				if(gotipclck)
+					{
+					err("IPCLCK defined twice");
+					return 0;
+					}
+				gotipclck = 1;
+				res = getassign(cp, &i, &ila, len, ipclck, "ipclck");
+				if(res != 1)
+					return 0;
+				if(*ipclck != 8 && *ipclck != 32)
+					{
+					printf("illegal value for ipclck= %d. Must be 8 or 32.\n", *ipclck);
+					return 0;
+					}
+				break;
+				}
+			printf("unknown option '%s'\n", &cp[i]);
+			return 0;
+		case 7:
+			if(strncmp(&cp[i], "MEMOFFS", 7) == 0)
+				{
+				if(*domemreg)
+					{
+					err("MEMOFFS defined twice");
+					return 0;
+					}
+				*domemreg = 1;
+				res = getassign(cp, &i, &ila, len, memoffs, "memoffs");
+				if(res != 1)
+					return 0;
+				if(*memoffs < 0 || *memoffs >= (1 << 17))
+					{
+					printf("illegal value for memoffs= %d (0x%x). 16 bits allowed\n", *memoffs, *memoffs);
+					return 0;
+					}
+
+				break;
+				}
+			printf("unknown option '%s'\n", &cp[i]);
+			return 0;
+		default:
+			printf("unknown option '%s'\n", &cp[i]);
+			return 0;
+                	}               /*case */
+                i = ila + 1;
+        	}                       /*while */
+        return 1;
+	}
+
+
+/* the card params string is of the following form (three integers):
+   vmeslotnum, IPintlevel, HSintnum
 */
-static int regaddr(privinfo* pv){
-    int* ipadr=(int*)(pv->ipadresses);
-    int vmeslotnum=pv->vmeslotnum;
-    int ip,ia,ipinc;
-    int memspace;
-    size_t basetmp=0;
-    /*  int retval=(int)NULL;*/  /* Who would initialize like this??? */
-    volatile longword retval = 0;
-    int space;
-    int moffs,status;
-    /*begin*/
-    for (ip=0;ip<NUMIPSLOTS;ip++)
-        for (ia=0;ia<IPAC_ADDR_SPACES;ia++)*ipadr++ =0;
-  
-    /* init the ipac_addrIO and ipac_addrID spaces*/
-    for(ip=0;ip<NUMIPSLOTS;ip++){
-        basetmp=(size_t)((vmeslotnum<<11)+(ip<<8));
-        status=devRegisterAddress(charid, atVMEA16,
-			      basetmp,
-			      IP_MEM_SIZE,
-			      (void *) &retval);
-        if (status!= OK){
-            return S_IPAC_badAddress;
-        }
-        pv->ipadresses[ip][ipac_addrIO]=retval;
-        pv->ipadresses[ip][ipac_addrID]=retval+0x80;
-    }
+static int
+initialise( const char *cardParams, void **cPrivate, unsigned short carrier)
+	{
+        int i;
+        int res;
+	int ipmem;
+	int ab32;
+	int cd32;
+	int ipclck;
+	int memoffs;
+	int domemreg;
+	int HSintnum;
+	int IPintlevel;
+        int vmeslotnum;
+        PrivateInfo *pv;
+        unsigned short csr;
+        unsigned int ccbase;
+	unsigned int carbase;
 
-    /*IP RAM space. This depends on the memory mode.
-     See section 2.2.1 in the VICB8802 User's Manual.
-     The 32 bit dual slot case is handled the same
-     way as the 16 bit case but has larger memory space*/
-    ipinc=1;
-    for(ip=0;ip<NUMIPSLOTS;ip+=ipinc){
-        space=ipac_addrMem;
+        /*
+           begin
+         */
+        printf("CARRIER init %s\n", cardParams);
+        hotSwapInit();
 
-        if (pv->isgeomem) {
-        /*geographic addressing*/
-            switch (pv->ipmemmode) {
-                case 1:
-	               basetmp=(size_t)((vmeslotnum<<22)|(ip<<20));
-	               break;
-                case 2:
-	               basetmp=(size_t)((vmeslotnum<<23)|(ip<<21));
-	               break;
-                case 4:
-	           /*shouldn't happen, catch this case in initialise()*/
-	               break;
-                case 8:
-	               basetmp=(size_t)((vmeslotnum<<27)|(ip<<23));
-	               break;
-                default:
-	               printf("INTERNAL ERROR: unknown ipmemmode %d\n",pv->ipmemmode);
-	               break;
-            }/*switch*/
-        } else {
-            /*use the memory base register*/
-            moffs=(pv->memoffs>>6);
-            switch (pv->ipmemmode) {
-                case 1:
-	               basetmp=(size_t)((moffs<<22)|(ip<<20));
-	               break;
-                case 2:
-	               basetmp=(size_t)((moffs<<23)|(ip<<21));
-	               break;
-                case 4:
-	               basetmp=(size_t)((moffs<<24)|(ip<<22));
-	               break;
-                case 8:
-	               basetmp=(size_t)((moffs<<25)|(ip<<23));
-	               break;
-                default:
-	               printf("INTERNAL ERROR: unknown ipmemmode %d\n",pv->ipmemmode);
-	               break;
-            }
-        }
-        /*now register the address*/
-        if ((int)basetmp==0)
-             return S_IPAC_badAddress;
+        res = scanparm(cardParams, &vmeslotnum, &IPintlevel, &HSintnum, &ipmem, &ab32, &cd32, &ipclck, &domemreg, &memoffs);
+        if(res == 0)
+                return S_IPAC_badAddress;
 
-        if (space==ipac_addrMem) memspace=ONEMB;
-        else/*double wide space*/memspace=2*ONEMB;
+        ccbase = (vmeslotnum << 11) + (1 << 10);
+        res = devRegisterAddress(_IDString, atVMEA16, (size_t) ccbase, VME_MEM_SIZE, (void *) (&carbase));
+        if(res != OK)
+        	{
+                printf("%s: RegisterAddress failed with status=%d\n", _IDString, res);
+                return ERR;
+        	}
 
-        /* printf("%s: Try to map address=0x%x\n)",charid, basetmp); */
+        /*
+           see if this really is a HyTec 8002
+         */
+        if( ! checkprom( carbase))
+        	{
+                printf("%s: checkpromd failed\n", _IDString);
+                res = devUnregisterAddress(atVMEA16, (size_t) ccbase, _IDString);
+                return ERR;
+        	}
 
-        status=devRegisterAddress(charid, atVMEA32,
-			      basetmp,
-			      memspace,
-			      (void *)&(retval));
-        if (status!=OK) {
-            return S_IPAC_badAddress;
-        }
+        pv = (PrivateInfo *) calloc(1, sizeof(PrivateInfo));
+        if(pv == NULL)
+        	{
+                printf("%s: calloc failed!\n", _IDString);
+                return ERR;
+        	}
+        /*
+           determine the CSR
+         */
+        csr = CSR_INTR_LEVEL( IPintlevel);
 
-        /* printf("%s: Mapped address=0x%x\n)",charid, retval); */
-        pv->ipadresses[ip][space]=retval;
-    } 
-    return OK;
-}
+        if(ab32)
+                csr |= CSR_IP_AB_32BIT;
+        if(cd32)
+                csr |= CSR_IP_CD_32BIT;
 
-/*******************************************************************************
+        if(domemreg)
+                csr |= CSR_USE_MEM_OFFSET;
 
-Routine: 
-    ipacHy8002CarrierInfo
+        pv->membase = memoffs & ~((1 << 6) - 1);
 
-Purpose:
-    print ROM info of the carrier card
+        switch (ipmem)
+        	{
+	case 1:
+		csr |= CSR_IP_MEM_1MB;
+		break;
 
-Description:
+	case 2:
+		pv->membase <<= 1;
+		csr |= CSR_IP_MEM_2MB;
+		break;
 
-    This is an. It registers the IP carrier card memory..
+	case 4:
+		pv->membase <<= 2;
+		csr |= CSR_IP_MEM_4MB;
+		break;
 
-Parameters:
-    carrier: carrier card number
+	case 8:
+		pv->membase <<= 3;
+		csr |= CSR_IP_MEM_8MB;
+		break;
 
-Return:
-    OK(0): if successful. 
-    Error code otherwise .
+	default:
+		printf("%s: Software error: IP Memory size set to %d. Must be 1, 2, 4 or 8.\n", _IDString, ipmem);
+		return ERR;
+        	}
 
+        /*
+           in the ipmem==2 with geographical addressing,
+           vmeslotnum must be [0..15] 
+         */
+        if(ipmem == 2 && vmeslotnum > 15)
+        	{
+                printf("%s: UNSUPPORTED PARAMETER OPTIONS", _IDString);
+                printf("vmeslot number must be <16 when geographical\n");
+                printf("addressing with 2MB IP RAM size\n");
+                printf("vmeslotnum=%d\n", vmeslotnum);
+                return ERR;
+        	}
+        if(ipmem == 4 && domemreg == 0)
+        	{
+                printf("%s: UNSUPPORTED PARAMETER OPTIONS", _IDString);
+                printf("geographical adressing is not supported\n");
+                printf("with 4MB IP RAM size\n");
+                return ERR;
+        	}
+
+        epicsMutexLock(_ListLock);
+        pv->next = _CarrierList;
+        _CarrierList = pv;
+        epicsMutexUnlock(_ListLock);
+
+        pv->vmeslotnum = vmeslotnum;
+        pv->IPintlevel = IPintlevel;
+        pv->HSintnum = HSintnum;
+        pv->baseaddr = carbase;
+        pv->ispresent = 1;
+        pv->memoffs = memoffs;
+        pv->isgeomem = (domemreg == 0);
+        pv->csrcb = csr;
+        pv->ipintsel = 0;
+        pv->carrint = HSintnum;
+        pv->ipmemmode = ipmem;
+        pv->ab32mode = ab32;
+        pv->cd32mode = cd32;
+
+        for(i = 0; i < 4; i++)
+        	{
+                /*
+                   mark base addresses as unregistered 
+                 */
+                pv->iobases[i] = pv->membases[i] = (void *) -1;
+        	}
+
+        HWdump(pv);
+        devEnableInterruptLevelVME(IPintlevel);
+
+#ifndef __NO_HOTSWAP__
+        devConnectInterruptVME(HSintnum, (void (*)()) carrISR, (void *) vmeslotnum);
+        devEnableInterruptLevelVME(CARR_INTLEVEL);
+#endif
+
+        *cPrivate = (void *) pv;
+        return OK;
+	}
+
+/* Return string with giving status of this slot */
+
+static char *
+report( void *cPrivate, unsigned short slot)
+	{
+        PrivateInfo *pv = (PrivateInfo *) cPrivate;
+
+        /*
+           Return string with giving status of this slot
+           static char* report(unsigned short carrier, unsigned short slot)     	{
+         */
+	printf( "%s: Report for VME slot %d\n", _IDString, slot);
+	if(( pv = (PrivateInfo *)cPrivate) != NULL)
+		(void)checkprom( pv->baseaddr);
+        return NULL;
+	}
+
+/* Return base addresses for this slot
+   and register the address.
 */
-/*return carrier PROM info of specified carrier or all if argument carrier is 0xFFFF */
-int ipacHy8002CarrierInfo(epicsUInt16 carrier)
-{
-    privinfo *cp=carlist; 
-    char* hytecstr=" (HyTec Electronics Ltd., Reading, UK)";
-    int manid,modelnum;
+static void *
+baseAddr(void *cPrivate, unsigned short slot, ipac_addr_t space)
+	{
+        PrivateInfo *pv = (PrivateInfo *) cPrivate;
+        int vmeslotnum = pv->vmeslotnum;
+        int status;
+        int retval = (int) NULL;
+        int basetmp = 0;
+        int memspace;
 
-    if(carlist == NULL){
-        printf("No carrier is registered.");
-        return S_IPAC_badAddress;
-    }
- 
-    while(cp!=NULL){																	/* loop all carriers */
-        if((cp->carrier == carrier) || (carrier == 0xFFFF)){                            /* print when carrier matches specified or all */
-            /*begin*/
-            manid=((*((char*)(cp->baseadr+VME_CARR_MAN1))<<8)+
-            (*((char*)(cp->baseadr+VME_CARR_MAN2)))) & 0xffff;
+        /*
+         * begin
+	printf( "\n--=<< SPACE is %#x >>=-- [[SLOT %d, BaseAddr=%#x, MemBase=%#x]]\n", (int)space, (int)slot, pv->baseaddr, pv->membase);
+	printf( "                       [[GeogMode=%d / IPMem=%#x (%d)]]\n", pv->isgeomem, pv->ipmemmode, pv->ipmemmode);
+	printf( "                       [[IOBASES =[%#x][%#x][%#x][%#x]]\n", pv->iobases[0], pv->iobases[1], pv->iobases[2], pv->iobases[3]);
+	printf( "                       [[MEMBASES=[%#x][%#x][%#x][%#x]]\n", pv->membases[0], pv->membases[1], pv->membases[2], pv->membases[3]);
+         */
 
-            printf("PROM manufacturer ID: 0x%02X. %s\n",manid, hytecstr);
-        
-            modelnum=(((int)(*((char*)cp->baseadr+VME_CARR_MOD1))<<8)+
-                (int)(*((char*)cp->baseadr+VME_CARR_MOD2))) & 0xffff;
+        /*
+           check args for the double wide case
+         */
+        if(pv->ab32mode && slot == 1)
+        	{
+                printf("%s: baseAddr: trying to access AB32 odd double wide slot %d\n", _IDString, slot);
+                return (void *) retval;
+        	}
 
-            printf("\nPROM model #: 0x%02hx, board rev. 0x%02hx\n",
-	           modelnum,(int)(*((char*)(cp->baseadr+VME_CARR_REVN))));
-            printf("PROM Xilinx rev.: 0x%02hx, 0x%02hx, 0x%02hx\n",
-	           (int)(*((char*)(cp->baseadr+VME_CARR_XIL1))),
-	           (int)(*((char*)(cp->baseadr+VME_CARR_XIL2))),
-	           (int)(*((char*)(cp->baseadr+VME_CARR_XIL3))));
+        if(pv->cd32mode && slot == 3)
+        	{
+                printf("%s: baseAddr: trying to access CD32 odd double wide slot %d\n", _IDString, slot);
+                return (void *) retval;
+        	}
 
-            printf("PROM Serial #: 0x%02hx 0x%02hx 0x%02hx 0x%02hx 0x%02hx 0x%02hx\n",
-	           *((char*)(cp->baseadr+VME_CARR_SER1)),
-	           *((char*)(cp->baseadr+VME_CARR_SER2)),
-	           *((char*)(cp->baseadr+VME_CARR_SER3)),
-	           *((char*)(cp->baseadr+VME_CARR_SER4)),
-	           *((char*)(cp->baseadr+VME_CARR_SER5)),
-	           *((char*)(cp->baseadr+VME_CARR_SER6)));
+        switch (space)
+        	{
+		/*
+		   IP control register space
+		 */
+	case ipac_addrID:
+	case ipac_addrIO:
+		if((void *) -1 == pv->iobases[slot])
+			{
+			void *tempVal;
 
-            if(cp->carrier == carrier) break;
-        }
-        cp=cp->next;
-    }
-    return OK;
-}
+			basetmp = (vmeslotnum << 11) + (slot << 8);
+			status = devRegisterAddress(_IDString, atVMEA16, (size_t) basetmp, IP_MEM_SIZE, (volatile void **) &tempVal);
+			if(status != OK)
+				{
+				printf("%s: A16 RegisterAddress error (status=%d)", _IDString, status);
+				printf("vmeslot %d, ipslot %d at address %x\n", vmeslotnum, slot, (int) basetmp);
+				errlogPrintf("%s: Cannot register A16 device at %x. Error is %x\n", _IDString, (int) basetmp, status);
+				}
+			pv->iobases[slot] = tempVal;
+			retval = (int) tempVal;
+			}
+		else
+			{
+			retval = (int) pv->iobases[slot];
+			}
+		if(ipac_addrID == space)
+			retval += 0x80;
+		break;
+
+	case ipac_addrMem:
+	case ipac_addrIO32:
+		if((void *) -1 == pv->membases[slot])
+			{
+			/*
+			   IP RAM space. This depends on the memory mode.
+			   See section 2.2.1 in the VICB8802 User's Manual.
+			   The 32 bit dual slot case is handled the same
+			   way as the 16 bit case but has larger memory space
+			 */
+			if(pv->isgeomem)
+				{
+				/*
+				   geographic addressing
+				 */
+				switch (pv->ipmemmode)
+					{
+				case 1:
+					basetmp = (vmeslotnum << 22) | (slot << 20);
+					break;
+				case 2:
+					basetmp = (vmeslotnum << 23) | (slot << 21);
+					break;
+				case 4:
+					/*
+					   shouldn't happen, catch this case in initialise()
+					 */
+					break;
+				case 8:
+					basetmp = (vmeslotnum << 27) | (slot << 23);
+					break;
+				default:
+					printf("INTERNAL ERROR: unknown ipmemmode %d\n", pv->ipmemmode);
+					break;
+					}       /*switch */
+				}
+			else
+				{
+				/*
+				   use the memory base register
+				 */
+				basetmp = pv->membase << 16;
+				switch (pv->ipmemmode)
+					{
+				case 1:
+					basetmp |= (slot << 20);
+					break;
+				case 2:
+					basetmp |= (slot << 21);
+					break;
+				case 4:
+					basetmp |= (slot << 22);
+					break;
+				case 8:
+					basetmp |= (slot << 23);
+					break;
+				default:
+					printf("INTERNAL ERROR: unknown ipmemmode %d\n", pv->ipmemmode);
+					}
+				}
+			/*
+			   now register the address
+			 */
+			if(basetmp != 0)
+				{
+				void *tempVal;
+
+				if(space == ipac_addrMem)
+					memspace = ONEMB;
+				else    /*double wide space */
+					memspace = 2 * ONEMB;
+
+				status = devRegisterAddress(_IDString, atVMEA32, (size_t) basetmp, memspace, (volatile void **) &tempVal);
+				if(status != OK)
+					{
+					printf("%s: A32 RegisterAddress error (status=%d)\n", _IDString, status);
+					printf("vmeslot %d, ipslot %d at address %#x\n", vmeslotnum, slot, (int) basetmp);
+					errlogPrintf("%s: Cannot register A32 device at %#x. Error is %#x\n", _IDString, (int) basetmp, status);
+					}
+				retval = (int) tempVal;
+				}
+			pv->membases[slot] = (void *) retval;
+			}
+		    else
+			{
+			retval = (int) pv->membases[slot];
+			}
+		break;
+
+	default:
+		break;
+        	}
+
+	/*
+	printf( "DONE:                    Found Addresses - Now Using:\n");
+	printf( "                         [[IOBASES =[%#x][%#x][%#x][%#x]]\n", pv->iobases[0], pv->iobases[1], pv->iobases[2], pv->iobases[3]);
+	printf( "                         [[MEMBASES=[%#x][%#x][%#x][%#x]]\n\n", pv->membases[0], pv->membases[1], pv->membases[2], pv->membases[3]);
+	*/
+
+        return (void *) retval;
+	}
+
+/* Interrupt manipulation */
+static int
+irqCmd(void *cPrivate, unsigned short slot, unsigned short irqnum, ipac_irqCmd_t cmd)
+	{
+        int retval = S_IPAC_notImplemented;
+        PrivateInfo *pv = (PrivateInfo *) cPrivate;
+        unsigned short ipstat, mymask;
+        unsigned short dodump = 0;
+
+        /*
+           begin
+         */
+        /*
+           irqnumber is 0 or 1.
+         */
+        if(irqnum != 0 && irqnum != 1)
+                return S_IPAC_notImplemented;
+
+        /*
+           is the IP card valid
+         */
+        if(slot > 3)
+                return S_IPAC_badAddress;
+
+        switch (cmd)
+        	{
+		/*
+		   We don't allow the IP driver to set the carrier's int level.
+		   It's set for the carrier in the init string
+		 */
+	case ipac_irqLevel0:
+	case ipac_irqLevel1:
+	case ipac_irqLevel2:
+	case ipac_irqLevel3:
+	case ipac_irqLevel4:
+	case ipac_irqLevel5:
+	case ipac_irqLevel6:           /* Highest priority */
+	case ipac_irqLevel7:           /* Non-maskable, don't use */
+		break;
+
+	case ipac_irqGetLevel:
+		/*
+		   Returns level set (or hard-coded) 
+		 */
+		retval = pv->IPintlevel;
+		break;
+
+	case ipac_irqEnable:
+		/*
+		   Required to use interrupts 
+		 */
+		if(irqnum == 0)
+			pv->ipintsel |= (1 << (slot));
+		else
+			pv->ipintsel |= (1 << (slot + 4));
+
+		pv->csrcb |= CSR_INTR_ENB;
+		dodump = 1;
+
+		retval = OK;
+		break;
+
+	case ipac_irqDisable:
+		/*
+		   Not necessarily supported 
+		 */
+		pv->csrcb &= ~CSR_INTR_ENB;
+		dodump = 1;
+		retval = OK;
+		break;
+
+	case ipac_irqPoll:
+		/*
+		   Returns interrupt state 
+		 */
+		ipstat = *((unsigned short *) (pv->baseaddr + CARR_IPSTAT));
+		mymask = 1 << (4 + slot) | (1 << slot);
+		retval = ipstat & mymask;
+		break;
+
+	case ipac_irqSetEdge:          /* Sets edge-triggered interrupts */
+	case ipac_irqSetLevel:         /* Sets level-triggered (default) */
+	case ipac_irqClear:            /* Only needed if using edge-triggered */
+		break;
+
+	default:
+		break;
+        	}                       /*switch */
+
+        if(dodump)
+        	{
+                epicsMutexLock(_ListLock);
+                if(pv->ispresent)
+                        HWdump(pv);
+                epicsMutexUnlock(_ListLock);
+        	}
+
+        return retval;
+	}
+
+/* Connect routine to interrupt vector */
+static int
+carintConnect(void *cPrivate, unsigned short slot, unsigned short intnum, void (*routine) (int parameter), int parm)
+	{
+        int inttmp = intnum;
+
+        /*
+           begin
+         */
+        return devConnectInterruptVME(inttmp, (void (*)()) routine, (void *) parm);
+	}
 
 
 
+static ipac_carrier_t Hy8002 =
+	{
+        "Hytec VICB8002",
+        4,
+        initialise,
+        report,
+        baseAddr,
+        irqCmd,
+        carintConnect
+	};
 
+int
+ipacAddHy8002( const char *cardParams)
+	{
+        return ipacAddCarrier( &Hy8002, cardParams);
+	}
+
+/*
+ * iocsh command table and registrar
+ */
+static const iocshArg Hy8002Arg0 =
+	{
+	"cardParams", iocshArgString
+	};
+
+static const iocshArg *const Hy8002Args[1] =
+	{
+	&Hy8002Arg0
+	};
+
+static const iocshFuncDef Hy8002FuncDef =
+	{
+	"ipacAddHy8002",
+	1,
+	Hy8002Args
+	};
+
+static void
+Hy8002CallFunc( const iocshArgBuf * args)
+	{
+        ipacAddHy8002( args[0].sval);
+	}
+
+static void epicsShareAPI
+Hy8002Registrar( void)
+	{
+        iocshRegister( &Hy8002FuncDef, Hy8002CallFunc);
+	}
+
+epicsExportRegistrar( Hy8002Registrar);

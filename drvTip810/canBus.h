@@ -14,7 +14,7 @@ Author:
 Created:
     25 July 1995
 Version:
-    $Id: canBus.h 177 2008-11-11 20:41:45Z anj $
+    canBus.h,v 1.8 2007/05/25 19:42:13 anj Exp
 
 Copyright (c) 1995-2000 Andrew Johnson
 
@@ -38,9 +38,8 @@ Copyright (c) 1995-2000 Andrew Johnson
 #ifndef INCcanBusH
 #define INCcanBusH
 
-#include "epicsTypes.h"
-#include "epicsTimer.h"
-#include "shareLib.h"
+#include <epicsTypes.h>
+#include <epicsTimer.h>
 
 
 #define CAN_IDENTIFIERS 2048
@@ -89,20 +88,20 @@ typedef void canSigCallback_t(void *pprivate, int status);
 extern int canSilenceErrors;
 extern epicsTimerQueueId canTimerQ;
 
-epicsShareFunc int canOpen(const char *busName, canBusID_t *pbusID);
-epicsShareFunc int canBusReset(const char *busName);
-epicsShareFunc int canBusStop(const char *busName);
-epicsShareFunc int canBusRestart(const char *busName);
-epicsShareFunc int canRead(canBusID_t busID, canMessage_t *pmessage, double timeout);
-epicsShareFunc int canWrite(canBusID_t busID, const canMessage_t *pmessage,
+extern int canOpen(const char *busName, canBusID_t *pbusID);
+extern int canBusReset(const char *busName);
+extern int canBusStop(const char *busName);
+extern int canBusRestart(const char *busName);
+extern int canRead(canBusID_t busID, canMessage_t *pmessage, double timeout);
+extern int canWrite(canBusID_t busID, const canMessage_t *pmessage,
 		    double timeout);
-epicsShareFunc int canMessage(canBusID_t busID, canID_t identifier, 
+extern int canMessage(canBusID_t busID, canID_t identifier, 
 		      canMsgCallback_t callback, void *pprivate);
-epicsShareFunc int canMsgDelete(canBusID_t busID, canID_t identifier, 
+extern int canMsgDelete(canBusID_t busID, canID_t identifier, 
 			canMsgCallback_t callback, void *pprivate);
-epicsShareFunc int canSignal(canBusID_t busID, canSigCallback_t callback,
+extern int canSignal(canBusID_t busID, canSigCallback_t callback,
 		     void *pprivate);
-epicsShareFunc int canIoParse(char *canString, canIo_t *pcanIo);
+extern int canIoParse(char *canString, canIo_t *pcanIo);
 
 
 #endif /* INCcanBusH */

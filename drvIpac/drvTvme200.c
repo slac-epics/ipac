@@ -22,7 +22,7 @@ Author:
 Created:
     10 December 2004
 Version:
-    $Id: drvTvme200.c 180 2009-08-20 05:02:11Z anj $
+    drvTvme200.c,v 1.3 2007/05/25 20:33:46 anj Exp
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -49,8 +49,8 @@ Modifications:
 
 #include <devLib.h>
 #include <epicsThread.h>
-#include <iocsh.h>
 #include <epicsExport.h>
+#include <iocsh.h>
 
 #include "drvIpac.h"
 
@@ -105,8 +105,8 @@ static const int tvmeIrqs[SETTINGS][SLOTS] = {
 /* IRQ and Control Registers */
 
 typedef struct {
-    epicsInt16 irqLevel;  /* IRQ0 = bits 0-2, IRQ1 = bits 4-6 */
-    epicsInt16 control;   /* 0 = IRQ0, 1 = IRQ1, 2 = Error, 7 = Reset */
+    short irqLevel;  /* IRQ0 = bits 0-2, IRQ1 = bits 4-6 */
+    short control;   /* 0 = IRQ0, 1 = IRQ1, 2 = Error, 7 = Reset */
 } ctrl_t;
 
 
@@ -163,12 +163,11 @@ Returns:
 LOCAL int initialise (
     const char *cardParams,
     void **pprivate,
-    epicsUInt16 carrier
+    ushort_t carrier
 ) {
     int s3, s4, mAM;
-    epicsUInt32 switches, ioBase, mSize, mBase;
+    ulong_t switches, ioBase, mSize, mBase;
     volatile void *ptr;
-    char *ioPtr, *mPtr;
     int space, slot;
     private_t *settings;
 
@@ -187,10 +186,10 @@ LOCAL int initialise (
 
     if (devRegisterAddress("TVME200", atVMEA16, ioBase, EXTENT, &ptr))
 	return S_IPAC_badAddress;
-    ioPtr = (char *) ptr;
+    ioBase = (ulong_t) ptr;
 
     for (slot = 0; slot < SLOTS; slot++) {
-	ctrl_t *ctrl = (ctrl_t *) (ioPtr + tvmeCtrls[slot]);
+	ctrl_t *ctrl = (ctrl_t *) (ioBase + tvmeCtrls[slot]);
 	int reg = ctrl->irqLevel & 0x77;
 	int set = tvmeIrqs[s3][slot];
 	/* Correct and warn if levels are wrong */
@@ -229,7 +228,7 @@ LOCAL int initialise (
 	devRegisterAddress("TVME200", mAM, mBase, mSize * SLOTS,  &ptr))) {
 	return S_IPAC_badAddress;
     }
-    mPtr = (char *) ptr;
+    mBase = (ulong_t) ptr;
 
     settings = (private_t *)malloc(sizeof (private_t));
     if (!settings)
@@ -238,13 +237,13 @@ LOCAL int initialise (
     for (space = 0; space < IO_SPACES; space++) {
 	for (slot = 0; slot < SLOTS; slot++) {
 	    settings->addr[space][slot] = (void *)
-		(ioPtr + tvmeAddrs[space][slot]);
+		(ioBase + tvmeAddrs[space][slot]);
 	}
     }
 
     for (slot = 0; slot < SLOTS; slot++) {
-	settings->addr[ipac_addrMem][slot] = (void *) (mPtr + mSize * slot);
-	settings->ctrl[slot] = (ctrl_t *) (ioPtr + tvmeCtrls[slot]);
+	settings->addr[ipac_addrMem][slot] = (void *) (mBase + mSize * slot);
+	settings->ctrl[slot] = (ctrl_t *) (ioBase + tvmeCtrls[slot]);
 	settings->addr[ipac_addrIO32][slot] = NULL;
     }
 
@@ -270,7 +269,7 @@ Returns:
 
 LOCAL char *report (
     void *private,
-    epicsUInt16 slot
+    ushort_t slot
 ) {
     private_t *settings = (private_t *)private;
     volatile ctrl_t *ctrl = settings->ctrl[slot];
@@ -305,7 +304,7 @@ Returns:
 
 LOCAL void *baseAddr (
     void *private,
-    epicsUInt16 slot,
+    ushort_t slot,
     ipac_addr_t space
 ) {
     private_t *settings = (private_t *)private;
@@ -342,8 +341,8 @@ Returns:
 
 LOCAL int irqCmd (
     void *private,
-    epicsUInt16 slot,
-    epicsUInt16 irqNumber,
+    ushort_t slot,
+    ushort_t irqNumber,
     ipac_irqCmd_t cmd
 ) {
     private_t *settings = (private_t *)private;

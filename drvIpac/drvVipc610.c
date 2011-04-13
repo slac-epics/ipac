@@ -19,7 +19,7 @@ Author:
 Created:
     19 July 1995
 Version:
-    $Id: drvVipc610.c 180 2009-08-20 05:02:11Z anj $
+    drvVipc610.c,v 1.10 2007/05/25 20:33:46 anj Exp
 
 Copyright (c) 1995-2003 Andrew Johnson
 
@@ -44,8 +44,8 @@ Copyright (c) 1995-2003 Andrew Johnson
 #include <string.h>
 
 #include <devLib.h>
-#include <iocsh.h>
 #include <epicsExport.h>
+#include <iocsh.h>
 
 #include "drvIpac.h"
 
@@ -154,13 +154,12 @@ Returns:
 LOCAL int initialise (
     const char *cardParams,
     void **pprivate,
-    epicsUInt16 carrier
+    ushort_t carrier
 ) {
     int params, mSize = 0;
-    epicsUInt32 ioBase, mOrig, mBase, mEnd, addr;
+    ulong_t ioBase, mOrig, mBase, mEnd, addr;
     volatile void *ptr;
-    char *ioPtr, *mPtr;
-    int space, slot;
+    ushort_t space, slot;
     private_t *private;
     static const int offset[IO_SPACES][SLOTS] = {
 	{ PROM_A, PROM_B, PROM_C, PROM_D },
@@ -186,7 +185,7 @@ LOCAL int initialise (
     if (devRegisterAddress("VIPC610", atVMEA16, ioBase, EXTENT, &ptr)) {
 	return S_IPAC_badAddress;
     }
-    ioPtr = (char *) ptr;       /* ioPtr points to ioBase in A16 space */
+    ioBase = (ulong_t) ptr;
 
     mSize = mSize << 10;	/* Convert size from K to Bytes */
     mEnd = (mBase & ~(mSize * SLOTS - 1)) + mSize * SLOTS;
@@ -195,7 +194,7 @@ LOCAL int initialise (
 	devRegisterAddress("VIPC610", atVMEA24, mBase, mEnd - mBase, &ptr)) {
 	return S_IPAC_badAddress;
     }
-    mPtr = (char *) ptr;        /* mPtr points to mBase in A24 space */
+    mBase = (ulong_t) ptr;
     mOrig = mBase & ~(mSize * SLOTS - 1);
 
     private = malloc(sizeof (private_t));
@@ -204,7 +203,7 @@ LOCAL int initialise (
 
     for (space = 0; space < IO_SPACES; space++) {
 	for (slot = 0; slot < SLOTS; slot++) {
-	    (*private)[space][slot] = (void *) (ioPtr + offset[space][slot]);
+	    (*private)[space][slot] = (void *) (ioBase + offset[space][slot]);
 	}
     }
 
@@ -214,7 +213,7 @@ LOCAL int initialise (
 	if ((mSize == 0) || (addr < mBase)) {
 	    (*private)[ipac_addrMem][slot] = NULL;
 	} else {
-	    (*private)[ipac_addrMem][slot] = (void *) (mPtr + (addr - mBase));
+	    (*private)[ipac_addrMem][slot] = (void *) addr;
 	}
     }
 
@@ -244,7 +243,7 @@ Returns:
 
 LOCAL void *baseAddr (
     void *private,
-    epicsUInt16 slot,
+    ushort_t slot,
     ipac_addr_t space
 ) {
     return (*(private_t *) private)[space][slot];
@@ -275,8 +274,8 @@ Returns:
 
 LOCAL int irqCmd (
     void *private,
-    epicsUInt16 slot,
-    epicsUInt16 irqNumber,
+    ushort_t slot,
+    ushort_t irqNumber,
     ipac_irqCmd_t cmd,
     const int irqLevel[SLOTS][IPAC_IRQS]
 ) {
@@ -295,8 +294,8 @@ LOCAL int irqCmd (
 
 LOCAL int irqCmd_610 (
     void *private,
-    epicsUInt16 slot,
-    epicsUInt16 irqNumber,
+    ushort_t slot,
+    ushort_t irqNumber,
     ipac_irqCmd_t cmd
 ) {
     static const int irqLevel[SLOTS][IPAC_IRQS] = {
@@ -310,8 +309,8 @@ LOCAL int irqCmd_610 (
 
 LOCAL int irqCmd_610_01 (
     void *private,
-    epicsUInt16 slot,
-    epicsUInt16 irqNumber,
+    ushort_t slot,
+    ushort_t irqNumber,
     ipac_irqCmd_t cmd
 ) {
     static const int irqLevel[SLOTS][IPAC_IRQS] = {
