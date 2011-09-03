@@ -749,7 +749,7 @@ Returns:
 LOCAL int t810RecvTask() {
    t810Receipt_t rmsg;
    callbackTable_t *phandler;
-   int numQueued;
+   uint32_t			numQueued;
 
    if (receiptQueue == 0) {
       fprintf(stderr, "CANbus Receive queue does not exist, task exiting.\n");
@@ -768,7 +768,8 @@ LOCAL int t810RecvTask() {
       if (numQueued > t810maxQueued) t810maxQueued = numQueued;
       
 #ifdef __rtems__
-	  { rtems_unsigned32 s=sizeof(t810Receipt_t);
+	  {
+	  size_t		s	= sizeof(t810Receipt_t);
 	  rtems_message_queue_receive(
 					  receiptQueue,
 					  &rmsg,
