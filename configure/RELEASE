@@ -11,7 +11,6 @@ EPICS_BASE=$(EPICS_SITE_TOP)/base/$(BASE_MODULE_VERSION)
 # ===============================================================
 # Define the version(s) of any other needed modules 
 # ===============================================================
-# Example: IPAC_MODULE_VERSION=ipac2.8.4
 
 # ============================================================
 # External Support module path definitions
