@@ -31,9 +31,6 @@
 #
 #==============================================================
 #
-
-ipac-R2-11-lcls2: Build for all architectures
-
 ipac-R2-11-lcls1: Updated with new version 2-11 from ANL
                   Builds against both base-R3-14-12 and base-R3-14-8-2-lcls6
 
