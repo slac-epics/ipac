@@ -1,0 +1,3 @@
+# Acromag PCIe bus IPAC carrier board
+registrar(apcie8650Registrar)
+
