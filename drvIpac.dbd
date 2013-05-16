@@ -11,6 +11,5 @@ driver(drvIpac)
 
 # The ATC40 carrier builds on ISA-bus (x86) systems only:
 #registrar(atc40Registrar)
-registrar(apcie8650Registrar)
-registrar(xy9660Registrar)
+#registrar(xy9660Registrar)
 
