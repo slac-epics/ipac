@@ -5,11 +5,12 @@ include $(TOP)/configure/CONFIG
 DBD += drvIpac.dbd
 LIBSRCS += drvIpac.c
 
-ifeq ($(T_A),$(findstring $(T_A), "linux-x86 linux-x86_64")))
+ifeq ($(T_A),$(findstring $(T_A), "linux-x86 linux-x86_64"))
 
 DBD += drvApcie8650.dbd
 LIBSRCS += drvApcie8650.c
 LIBRARY_IOC = Ipac
+INC += drvApcie8650.h
 
 else
 
