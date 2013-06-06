@@ -170,7 +170,6 @@ LOCAL int initialise( const char *cardParams, void **pprivate, unsigned short ca
         perror("uio open:");
         return errno;
     }
-    pconfig->uioDevFd = uioDevFd;
 
 /* get a FD to the config space */
 
@@ -377,57 +376,28 @@ LOCAL int irqCmd( void *private, unsigned short slot, unsigned short irqNumber, 
 
 LOCAL char *report(struct privateApcie8650 *pprivate, unsigned short slot)
 {
-  struct configApcie8650  *pconfig = pprivate->pconfig;
-  struct mapApcie8650     *pmap = baseAddr(pprivate, slot, ipac_addrID) - 0x40;
-  int i, x; 
-  int bc;
-  static char buf[1204];
+    struct configApcie8650  *pconfig = pprivate->pconfig;
+    volatile ipac_idProm_t  *ipmid = baseAddr(pprivate, slot, ipac_addrID);
+    int i, x; 
+    int bc = 0;
+    static char buf[1204];
+    int card;
 
-  if( slot == 0 )
-  {
-    bc =  sprintf(buf,    "\nStatus/Ctl Register:\t\t0x%x\n", pmap->stsCtl);
-    bc += sprintf(buf+bc, "Interrupt Pending Register:\t0x%x\n", pmap->intPending);
-    for (i = 0; i <= 3; i++)
+    card = pconfig->card;
+    if (ipmCheck(card, slot) != S_IPAC_noModule)
     {
-       for (x = 0; x <= 1; x++)
-          bc += sprintf(buf+bc, "IP %c Interrupt %c Select Space:\t0x%x\n",
-                           'A'+i, '0'+x,  *(((unsigned short *) &pmap->slotAInt0)+i+x));
+        bc += sprintf(buf+bc, "\n");
+        bc += sprintf(buf+bc, "Identification:\t\t%c%c%c%c\n", ipmid->asciiI, ipmid->asciiP, ipmid->asciiA, ipmid->asciiC);
+        bc += sprintf(buf+bc, "Manufacturers ID:\t%x\n", ipmid->manufacturerId & 0xff);
+        bc += sprintf(buf+bc, "Model ID:\t\t%x\n", ipmid->modelId & 0xff);
+        bc += sprintf(buf+bc, "Revision:\t\t%x\n", ipmid->revision & 0xff);
+        bc += sprintf(buf+bc, "Reserved:\t\t%x\n", ipmid->reserved & 0xff);
+        bc += sprintf(buf+bc, "Driver ID Low:\t\t%x\n", ipmid->driverIdLow & 0xff);
+        bc += sprintf(buf+bc, "Driver ID High\t\t%x\n", ipmid->driverIdHigh & 0xff);
+        bc += sprintf(buf+bc, "ID PROM length:\t\t%x\n", ipmid->bytesUsed & 0xff);
+        bc += sprintf(buf+bc, "ID PROM CRC:\t\t%x\n", ipmid->CRC & 0xff);
     }
-    bc += sprintf(buf+bc, "Clock Ctl Register:\t0x%x\n", pmap->clkCtl);
-    bc += sprintf(buf+bc, "ID Register:\t0x%x\n", pmap->ID);
-  }
-  for (i = 0; i <= 3; i++)
-  {
-    bc += sprintf(buf+bc, "Slot %d\n", i);
-    bc += sprintf(buf+bc, "\tISR 0x%x param 0x%x\n", carrierISR.slots[i].ISR, carrierISR.slots[i].param);
-  }
-
-#if	0
-
-                   IPB memory base addr & size:\t0x%x\nIPC memory base addr & size:\t0x%x\nIPD memory base addr & size:\t0x%x\nInterrupt Enable Register:\t0x%x\nInterrupt Pending Register:\t0x%x\nInterrupt Clear Register:\t0x%x\nAttribute mask:\t\t\t0x%x\nParameter mask:\t\t\t0x%x\n", map_ptr->sts_reg, map_ptr->lev_reg, map_ptr->err_reg, map_ptr->mem_en_reg, map_ptr->ipambasr, map_ptr->ipbmbasr, map_ptr->ipcmbasr, map_ptr->ipdmbasr, map_ptr->en_reg, map_ptr->pnd_reg, map_ptr->clr_reg, cptr->attr, cptr->param);
-
-    if( ipmCheck(cptr->card, slot)==0 )
-      sprintf(buf+strlen(buf), "\nIdentification:\t\t%c%c%c%c\nManufacturer's ID:\t0x%x\nIP Model Number:\t0x%x\nRevision:\t\t0x%x\nReserved:\t\t0x%x\nDriver I.D. (low):\t0x%x\nDriver I.D. (high):\t0x%x\nTotal I.D. Bytes:\t0x%x\nCRC:\t\t\t0x%x\n", map_ptr->id_map_a[0].prom_a, map_ptr->id_map_a[1].prom_a, map_ptr->id_map_a[2].prom_a, map_ptr->id_map_a[3].prom_a, map_ptr->id_map_a[4].prom_a, map_ptr->id_map_a[5].prom_a, map_ptr->id_map_a[6].prom_a, map_ptr->id_map_a[7].prom_a, map_ptr->id_map_a[8].prom_a, map_ptr->id_map_a[9].prom_a, map_ptr->id_map_a[10].prom_a, map_ptr->id_map_a[11].prom_a);
-  }
-  else if( slot == 1 )
-  {
-    if( ipmCheck(cptr->card, slot)==0 )
-      sprintf(buf, "\nIdentification:\t\t%c%c%c%c\nManufacturer's ID:\t0x%x\nIP Model Number:\t0x%x\nRevision:\t\t0x%x\nReserved:\t\t0x%x\nDriver I.D. (low):\t0x%x\nDriver I.D. (high):\t0x%x\nTotal I.D. Bytes:\t0x%x\nCRC:\t\t\t0x%x\n", map_ptr->id_map_b[0].prom_b, map_ptr->id_map_b[1].prom_b, map_ptr->id_map_b[2].prom_b, map_ptr->id_map_b[3].prom_b, map_ptr->id_map_b[4].prom_b, map_ptr->id_map_b[5].prom_b, map_ptr->id_map_b[6].prom_b, map_ptr->id_map_b[7].prom_b, map_ptr->id_map_b[8].prom_b, map_ptr->id_map_b[9].prom_b, map_ptr->id_map_b[10].prom_b, map_ptr->id_map_b[11].prom_b);
-  }
-  else if( slot == 2 )
-  {
-    if( ipmCheck(cptr->card, slot)==0 )
-      sprintf(buf, "\nIdentification:\t\t%c%c%c%c\nManufacturer's ID:\t0x%x\nIP Model Number:\t0x%x\nRevision:\t\t0x%x\nReserved:\t\t0x%x\nDriver I.D. (low):\t0x%x\nDriver I.D. (high):\t0x%x\nTotal I.D. Bytes:\t0x%x\nCRC:\t\t\t0x%x\n", map_ptr->id_map_c[0].prom_c, map_ptr->id_map_c[1].prom_c, map_ptr->id_map_c[2].prom_c, map_ptr->id_map_c[3].prom_c, map_ptr->id_map_c[4].prom_c, map_ptr->id_map_c[5].prom_c, map_ptr->id_map_c[6].prom_c, map_ptr->id_map_c[7].prom_c, map_ptr->id_map_c[8].prom_c, map_ptr->id_map_c[9].prom_c, map_ptr->id_map_c[10].prom_c, map_ptr->id_map_c[11].prom_c);
-  }
-  else if( slot == 3 )
-  {
-    if( ipmCheck(cptr->card, slot)==0 )
-      sprintf(buf, "\nIdentification:\t\t%c%c%c%c\nManufacturer's ID:\t0x%x\nIP Model Number:\t0x%x\nRevision:\t\t0x%x\nReserved:\t\t0x%x\nDriver I.D. (low):\t0x%x\nDriver I.D. (high):\t0x%x\nTotal I.D. Bytes:\t0x%x\nCRC:\t\t\t0x%x\n", map_ptr->id_map_d[0].prom_d, map_ptr->id_map_d[1].prom_d, map_ptr->id_map_d[2].prom_d, map_ptr->id_map_d[3].prom_d, map_ptr->id_map_d[4].prom_d, map_ptr->id_map_d[5].prom_d, map_ptr->id_map_d[6].prom_d, map_ptr->id_map_d[7].prom_d, map_ptr->id_map_d[8].prom_d, map_ptr->id_map_d[9].prom_d, map_ptr->id_map_d[10].prom_d, map_ptr->id_map_d[11].prom_d);
-  }
-
-#endif
-  return(buf);
-  return(NULL);
+    return(buf);
 }
 
 int xipIoParse( char *str, xipIo_t *ptr, char flag )
@@ -571,24 +541,21 @@ LOCAL intConnect(unsigned short carrier, unsigned short slot, unsigned short vec
 }
 
 
-int ipApcie8650Report(const int carrier, const int slot) {
-    return (ipmReport(carrier, slot) == NULL?-1:0);
+int ipApcie8650Report(int interest) {
+    return (ipacReport(interest) == NULL?-1:0);
 }
 
 static const iocshArg apcie8650ReportArg0 =
-    {"Carrier", iocshArgInt};
-
-static const iocshArg apcie8650ReportArg1 =
-    {"Slot", iocshArgInt};
+    {"interest", iocshArgInt};
 
 static const iocshArg * const apcie8650ReportArgs[2] =
-    {&apcie8650ReportArg0, &apcie8650ReportArg1};
+    {&apcie8650ReportArg0};
 
 static const iocshFuncDef apcie8650ReportFuncDef =
-    {"ipApcie8650Report", 2, apcie8650ReportArgs};
+    {"ipApcie8650Report", 1, apcie8650ReportArgs};
 
 static void apcie8650ReportCallFunc(const iocshArgBuf *args) {
-    ipApcie8650Report(args[0].ival, args[1].ival);
+    ipApcie8650Report(args[0].ival);
 }
 
 /* IPAC Carrier Table */

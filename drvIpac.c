@@ -239,7 +239,7 @@ int ipmCheck (
     unsigned short carrier, 
     unsigned short slot
 ) {
-    ipac_idProm_t *id;
+    volatile ipac_idProm_t *id;
     unsigned short dummy;
 
     if (carrier >= carriers.number ||
@@ -257,10 +257,14 @@ int ipmCheck (
 #else
     if (devReadProbe(sizeof(dummy),(void *)&id->asciiI, &dummy)) {
 #endif
+#else
+    /* no bus error on the PCI carrierr */ 
+    if ((id->asciiI & 0xff) != 'I') 
+    {
+#endif
     
         return S_IPAC_noModule;
     }
-#endif
     /*
      * The following code is deliberately de-optimized to fix a problem with
      * a particular GPIB module which can't handle the back-to-back accesses
@@ -414,14 +418,18 @@ char *ipmReport (
     sprintf(report, "C%hd S%hd : ", carrier, slot);
 
     status = ipmCheck(carrier, slot);
-    if (status == S_IPAC_badAddress) {
+    if (status == S_IPAC_badAddress) 
+    {
 	strcat(report, "No such carrier/slot");
 	return report;
     }
-
-    if (status == S_IPAC_noModule) {
+    
+    if (status == S_IPAC_noModule) 
+    {
 	strcat(report, "No Module");
-    } else {
+    } 
+    else 
+    {
 	ipac_idProm_t *id;
 	char module[16];
 
@@ -429,13 +437,14 @@ char *ipmReport (
 	sprintf(module, "%#2.2hx/%#2.2hx", id->manufacturerId & 0xff,
 		id->modelId & 0xff);
 	strcat(report, module);
-    }
 
-    if (carriers.info[carrier].driver->report != NULL) {
-	strcat(report, " - ");
-	strncat(report, carriers.info[carrier].driver->report(
-			carriers.info[carrier].cPrivate, slot),
-		IPAC_REPORT_LEN);
+        if (carriers.info[carrier].driver->report != NULL) 
+        {
+            strcat(report, " - ");
+	    strncat(report, carriers.info[carrier].driver->report(
+                      carriers.info[carrier].cPrivate, slot),
+                      IPAC_REPORT_LEN);
+        }
     }
 
     return report;
