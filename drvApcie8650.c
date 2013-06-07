@@ -25,9 +25,7 @@ Created:
 #include <string.h>
 #include <ctype.h>
 #include <errno.h>
-#ifdef linux
 #include <sys/mman.h>
-#endif
 #include "apce8650.h"
 #ifdef NO_EPICS
 #include <vme.h>
@@ -37,6 +35,7 @@ Created:
 #include "drvSup.h"
 #endif
 #include "epicsThread.h"
+#include "epicsInterrupt.h"
 #include "drvIpac.h"
 #include "drvApcie8650.h"
 #include "xipIo.h"
@@ -99,7 +98,7 @@ Routine:
     initialise
 
 Purpose:
-    Creates new private table for XYCOM Apcie8650 at addresses given by cardParams
+    Creates new private table for Acromag Apcie8650 at addresses given by cardParams
 
 Description:
     Checks the parameter string for the address of the card I/O space and 
@@ -109,26 +108,9 @@ Description:
     to the base addresses of the various accessible parts of the IP module.
 
 Parameters:
-    The parameter string should comprise a hex number (the 0x or 0X at the 
-    start is optional) optionally followed by a comma and a decimal integer.  
-    The first number is the I/O base address of the card in the VME A16 
-    address space (the factory default is 0x0000).  If present the second 
-    number gives the memory space in Kbytes allocated to each IP module.  
+    The parameter string is unused at this time.
 
 Examples:
-    "0x6000" 
-	This indicates that the carrier board has its I/O base set to 
-	0x6000, and none of the slots provide memory space.
-    "1000,128"
-	Here the I/O base is set to 0x1000, and there is 128Kbytes of 
-	memory on each module, with the IP module A memory at 0x100000,
-	module B at 0x120000, module C at 0x140000 and D at 0x160000.
-    "7000,1024"
-	The I/O base is at 0x7000, and hence the carrier memory base is 
-	0x700000.  However because the memory size is set to 1024 Kbytes, 
-	modules A, B and C cannot be selected (1024 K = 0x100000, so they 
-	are decoded at 0x400000, 0x500000 and 0x600000 but can't be accessed
-	because these are below the base address).
 
 Returns:
     0 = OK, 
@@ -139,19 +121,15 @@ Returns:
 LOCAL int initialise( const char *cardParams, void **pprivate, unsigned short carrier )
 {
     unsigned short space, slot;
-    int handle;
     int card = 0;
     unsigned long ioBase;
-    unsigned char command;
-    int status;
-    int uioDevFd, err;
+    int uioDevFd;
     int uioClassPathMMIOFd;
     int uioClassPathConfigFd;
     char uioDevName[33]; 
     char uioClassPath[64];
     char *tp;
-    void *p;
-    epicsThreadId ipApcie8650WaitForInts(int);
+    epicsThreadId ipApcie8650WaitForInts(struct configApcie8650*);
 
     struct privateApcie8650 *pApcie8650;
     struct configApcie8650  *pconfig;
@@ -205,17 +183,8 @@ LOCAL int initialise( const char *cardParams, void **pprivate, unsigned short ca
     if ((pApcie8650 = malloc(sizeof(struct privateApcie8650))) == NULL)
         return (S_IPAC_noMemory);
 
-   
-#ifndef	linux	
-#ifdef NO_EPICS
-    if (sysBusToLocalAdrs(VME_AM_SUP_SHORT_IO, (char *) ioBase, (char **) &ioBase)
-#else
-    if (devRegisterAddress("APCIE8650Ipac", atVMEA16, ioBase, REGS_SIZE, (void*)&ioBase))
-#endif
-#else /* linux */
     ioBase = (unsigned long) mmap(NULL, APC8650_IO_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED, uioClassPathMMIOFd, 0);
     if (ioBase == -1)
-#endif /* linux */
         return S_IPAC_badAddress;
 
     private = malloc(sizeof (private_t));
@@ -248,7 +217,7 @@ LOCAL int initialise( const char *cardParams, void **pprivate, unsigned short ca
     *pprivate      = pApcie8650;
 
     pconfig->tid = epicsThreadCreate("ipApcie8650WaitForInts", 65, epicsThreadGetStackSize(epicsThreadStackMedium),
-                     ipApcie8650WaitForInts, pconfig);
+                     (EPICSTHREADFUNC) ipApcie8650WaitForInts, pconfig);
     if (pconfig->tid == NULL)
         return(!OK);
 
@@ -314,7 +283,6 @@ Returns:
 LOCAL int irqCmd( void *private, unsigned short slot, unsigned short irqNumber, ipac_irqCmd_t cmd )
 {
     struct privateApcie8650 *p;
-    struct mapApcie8650     *carrier;
     p = (struct privateApcie8650 *)private;
     struct configApcie8650 *pconfig = p->pconfig;
     volatile unsigned long ioBase = pconfig->ioBase;
@@ -340,14 +308,6 @@ LOCAL int irqCmd( void *private, unsigned short slot, unsigned short irqNumber, 
                   *((char *) ioBase) |= 0x04;
                   break;
              }
-                
-#ifndef linux
-#ifdef NO_EPICS
-            sysIntEnable(IRQ_LEVEL);
-#else
-            devEnableInterruptLevelVME(IRQ_LEVEL);
-#endif
-#endif
             return OK;
 
 	case ipac_irqDisable:
@@ -373,18 +333,18 @@ LOCAL int irqCmd( void *private, unsigned short slot, unsigned short irqNumber, 
     }
 }
 
-
+#if	0
 LOCAL char *report(struct privateApcie8650 *pprivate, unsigned short slot)
+#else
+LOCAL char *report(void *pprivate, unsigned short slot)
+#endif
 {
-    struct configApcie8650  *pconfig = pprivate->pconfig;
+    struct configApcie8650  *pconfig = ((struct privateApcie8650 *) pprivate)->pconfig;
     volatile ipac_idProm_t  *ipmid = baseAddr(pprivate, slot, ipac_addrID);
-    int i, x; 
     int bc = 0;
     static char buf[1204];
-    int card;
 
-    card = pconfig->card;
-    if (ipmCheck(card, slot) != S_IPAC_noModule)
+    if (ipmCheck(pconfig->card, slot) != S_IPAC_noModule)
     {
         bc += sprintf(buf+bc, "\n");
         bc += sprintf(buf+bc, "Identification:\t\t%c%c%c%c\n", ipmid->asciiI, ipmid->asciiP, ipmid->asciiA, ipmid->asciiC);
@@ -472,26 +432,17 @@ LOCAL char *strdupn( const char *ct, size_t n )
   return duplicate;
 }
 
-epicsThreadId ipApcie8650WaitForInts(int param)
+epicsThreadId ipApcie8650WaitForInts(struct configApcie8650 *pconfig)
 {
     int icount;
     int err;
-    int status;
     unsigned char command;
-    struct configApcie8650 *pconfig = (struct config *) param;
     int uioDevFd = pconfig->uioDevFd;
     int uioClassPathConfigFd = pconfig->uioClassPathConfigFd;
     unsigned short ipr;
     int slot;
     int oldicount = 10;
     char imsg[64];
-
-    status =  pread(uioClassPathConfigFd, &command, 1, 7);
-    printf("command 0x%x\n", command);
-    status =  pread(uioClassPathConfigFd, &command, 1, 5);
-    printf("command 0x%x\n", command);
-
-    printf("carrier %d\n", pconfig->card);
 
     while(1)
     {
@@ -508,7 +459,7 @@ epicsThreadId ipApcie8650WaitForInts(int param)
 
         if (err != 4) {
             perror("uio read:");
-            return(-1);
+            return((epicsThreadId)-1);
         }
         /* figure out which slot */
         for (slot = 0; slot < 4; slot++)
@@ -526,13 +477,13 @@ epicsThreadId ipApcie8650WaitForInts(int param)
             }
         }
     }
-    return(0);
+    return((epicsThreadId)0);
 }
 /*
     int (*intConnect)(void *cPrivate, unsigned short slot, unsigned short vecNum,
                 void (*routine)(int parameter), int parameter);
 */
-LOCAL intConnect(unsigned short carrier, unsigned short slot, unsigned short vec, void (*routine)(int param), int param )
+LOCAL int intConnect(void *cPrivate, unsigned short slot, unsigned short vec, void (*routine)(int param), int param )
 {
   carrierISR.slots[slot].ISR = (int(*)()) routine;
   carrierISR.slots[slot].param = param;
@@ -541,8 +492,9 @@ LOCAL intConnect(unsigned short carrier, unsigned short slot, unsigned short vec
 }
 
 
-int ipApcie8650Report(int interest) {
-    return (ipacReport(interest) == NULL?-1:0);
+int ipApcie8650Report(int interest) 
+{
+    return (ipacReport(interest));
 }
 
 static const iocshArg apcie8650ReportArg0 =
