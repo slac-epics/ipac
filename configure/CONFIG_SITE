@@ -11,7 +11,9 @@
 # Set this when you only want to compile this application
 # for a subset of the cross-compiled target architectures
 # that Base is built for.
-CROSS_COMPILER_TARGET_ARCHS = RTEMS-beatnik
+CROSS_COMPILER_TARGET_ARCHS = RTEMS-beatnik linux-x86_64
+
+BUILD_FOR_HOST_ARCH = 
 
 # Set this when your IOC and the host use different paths
 # to access the application. This will be needed to boot

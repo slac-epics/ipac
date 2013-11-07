@@ -37,9 +37,9 @@ Copyright (c) 1995-2000 Andrew Johnson
 
 
 #ifndef NO_EPICS
-#  include "devLib.h"
-#  include "drvSup.h"
-#  include "epicsExport.h"
+#include "devLib.h"
+#include "drvSup.h"
+#include "epicsExport.h"
 #endif
 
 #include <stdio.h>
@@ -172,8 +172,8 @@ int ipacAddCarrier (
     status = pcarrierTable->initialise(cardParams,
 	     &carriers.info[carriers.latest].cPrivate, carriers.latest);
     if (status) {
-	printf("ipacAddCarrier: %s driver returned an error.\n", 
-		pcarrierTable->carrierType);
+	printf("ipacAddCarrier: %s driver returned an error = %d.\n", 
+		pcarrierTable->carrierType, status);
 	return status;
     }
 
@@ -237,7 +237,7 @@ int ipmCheck (
     unsigned short carrier, 
     unsigned short slot
 ) {
-    ipac_idProm_t *id;
+    volatile ipac_idProm_t *id;
     unsigned short dummy;
 
     if (carrier >= carriers.number ||
@@ -249,15 +249,21 @@ int ipmCheck (
     if (id == NULL) {
 	return S_IPAC_badDriver;
     }
-#ifdef NO_EPICS
-    if (vxMemProbe((void *)&id->asciiI, READ, sizeof(dummy), (char *)&dummy)) {
-      
+
+#ifdef linux
+    /* no bus error on the PCI carrierr */ 
+    if ((id->asciiI & 0xff) != 'I') 
+        return S_IPAC_noModule;
 #else
-      if (devReadProbe(sizeof(dummy),(void *)&id->asciiI, &dummy)) {
+#ifdef NO_EPICS
+    if (vxMemProbe((void *)&id->asciiI, READ, sizeof(dummy), (char *)&dummy))
+        return S_IPAC_noModule;
+#else
+    if (devReadProbe(sizeof(dummy),(void *)&id->asciiI, &dummy))
+        return S_IPAC_noModule;
 #endif
-	return S_IPAC_noModule;
-    }
-    
+#endif
+
     /*
      * The following code is deliberately de-optimized to fix a problem with
      * a particular GPIB module which can't handle the back-to-back accesses
@@ -411,14 +417,18 @@ char *ipmReport (
     sprintf(report, "C%hd S%hd : ", carrier, slot);
 
     status = ipmCheck(carrier, slot);
-    if (status == S_IPAC_badAddress) {
+    if (status == S_IPAC_badAddress) 
+    {
 	strcat(report, "No such carrier/slot");
 	return report;
     }
-
-    if (status == S_IPAC_noModule) {
+    
+    if (status == S_IPAC_noModule) 
+    {
 	strcat(report, "No Module");
-    } else {
+    } 
+    else 
+    {
 	ipac_idProm_t *id;
 	char module[16];
 
@@ -426,13 +436,14 @@ char *ipmReport (
 	sprintf(module, "%#2.2hx/%#2.2hx", id->manufacturerId & 0xff,
 		id->modelId & 0xff);
 	strcat(report, module);
-    }
 
-    if (carriers.info[carrier].driver->report != NULL) {
-	strcat(report, " - ");
-	strncat(report, carriers.info[carrier].driver->report(
-			carriers.info[carrier].cPrivate, slot),
-		IPAC_REPORT_LEN);
+        if (carriers.info[carrier].driver->report != NULL) 
+        {
+            strcat(report, " - ");
+	    strncat(report, carriers.info[carrier].driver->report(
+                      carriers.info[carrier].cPrivate, slot),
+                      IPAC_REPORT_LEN);
+        }
     }
 
     return report;

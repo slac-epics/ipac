@@ -3,6 +3,17 @@ TOP = ..
 include $(TOP)/configure/CONFIG
 
 DBD += drvIpac.dbd
+LIBSRCS += drvIpac.c
+
+ifeq ($(T_A),$(findstring $(T_A), "linux-x86 linux-x86_64"))
+
+DBD += drvApcie8650.dbd
+LIBSRCS += drvApcie8650.c
+LIBRARY_IOC = Ipac
+INC += drvApcie8650.h
+
+else
+
 DBD += drv8002.dbd
 DBD += drvXy9660.dbd
 
@@ -26,7 +37,6 @@ USR_CFLAGS += -D__NO_HOTSWAP__
 
 USR_CFLAGS_RTEMS += -DIPAC_FORCELINK_TAB
 
-LIBSRCS += drvIpac.c
 
 # Any VMEbus: SBS VIPC carrier drivers
 LIBSRCS += drvVipc310.c
@@ -45,5 +55,7 @@ LIBSRCS_vxWorks += drvIpMv162.c
 
 # ISAbus: SBS ATC40 carrier driver (Intel-based systems only!)
 LIBSRCS_vxWorks += drvAtc40.c
+
+endif #linux
 
 include $(TOP)/configure/RULES
