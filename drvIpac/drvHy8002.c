@@ -53,6 +53,7 @@ Portions Copyright (c) 2002-2010 Hytec Electronics Ltd, UK.
 #include <epicsTypes.h>
 #include <epicsExit.h>
 #include <iocsh.h>
+#include <errlog.h>
 #include <epicsExport.h>
 
 /* Module headers */

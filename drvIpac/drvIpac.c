@@ -346,8 +346,8 @@ Returns:
 */
 
 int ipmCheck (
-    int carrier,
-    int slot
+    unsigned short carrier,
+    unsigned short slot
 ) {
     ipac_idProm_t *id;
 
@@ -361,8 +361,8 @@ int ipmCheck (
     id = (ipac_idProm_t *) ipmBaseAddr(carrier, slot, ipac_addrID);
 
     if (carriers.info[carrier].driver->moduleProbe == NULL) {
-	epicsUInt16 word;
 #ifndef linux /* rnd */
+	epicsUInt16 word;
 	if (devReadProbe(sizeof(word), (void *)&id->asciiI, (char *)&word)) {
 	    return S_IPAC_noModule;
 	}
@@ -490,10 +490,10 @@ Returns:
 */
 
 int ipmValidate (
-    int carrier,
-    int slot,
-    int manufacturerId,
-    int modelId
+    unsigned short carrier,
+    unsigned short slot,
+    unsigned char manufacturerId,
+    const unsigned char modelId
 ) {
     ipac_idProm_t *id;
     int status;
@@ -558,8 +558,8 @@ Sample Output:
 */
 
 char *ipmReport (
-    int carrier,
-    int slot
+    unsigned short carrier,
+    unsigned short slot
 ) {
     static char report[IPAC_REPORT_LEN+32];
     int status;
@@ -634,8 +634,8 @@ Returns:
 */
 
 void *ipmBaseAddr (
-    int carrier, 
-    int slot,
+    unsigned short carrier, 
+    unsigned short slot,
     ipac_addr_t space
 ) {
     if (carrier < 0 ||
@@ -672,9 +672,9 @@ Returns:
 */
 
 int ipmIrqCmd (
-    int carrier,
-    int slot,
-    int irqNumber,
+    unsigned short carrier,
+    unsigned short slot,
+    unsigned short irqNumber,
     ipac_irqCmd_t cmd
 ) {
     if (carrier < 0 ||
@@ -725,8 +725,8 @@ Returns:
 
 #ifndef vxWorks
 struct intData {
-    void (*routine)(int parameter);
-    int parameter;
+    void (*routine)(void * parameter);
+    void * parameter;
 };
 LOCAL void intShim(void *parm) {
     struct intData *pisr = (struct intData *) parm;
@@ -735,11 +735,11 @@ LOCAL void intShim(void *parm) {
 #endif
 
 int ipmIntConnect (
-	int carrier, 
-	int slot, 
-	int vecNum, 
-	void (*routine)(int parameter), 
-	int parameter
+	unsigned short carrier, 
+	unsigned short slot, 
+	unsigned short vecNum, 
+	void (*routine)(void * parameter), 
+	void * parameter
 ) {
     if (carrier < 0 ||
 	carrier >= carriers.number ||

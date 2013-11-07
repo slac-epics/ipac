@@ -192,7 +192,7 @@ typedef struct {
     /* The remaining routines are optional. Some drvIpac routines may call
      * devLib if these routines are NULL or not provided. */
     int (*intConnect)(void *cPrivate, epicsUInt16 slot, epicsUInt16 vecNum,
-		void (*routine)(int parameter), int parameter);
+		void (*routine)(void * parameter), void * parameter);
 			/* Connect routine to interrupt vector */
     int (*moduleProbe)(void *cPrivate, epicsUInt16 slot);
 			/* Return 0 if reading ID Prom would Bus Error */
@@ -214,15 +214,15 @@ epicsShareFunc int ipcCheckId(ipac_idProm_t *id);
 
 /* Functions for use in IPAC module drivers */
 
-epicsShareFunc int ipmCheck(int carrier, int slot);
-epicsShareFunc int ipmValidate(int carrier, int slot,
-		int manufacturerId, int modelId);
-epicsShareFunc char *ipmReport(int carrier, int slot);
-epicsShareFunc void *ipmBaseAddr(int carrier, int slot, ipac_addr_t space);
-epicsShareFunc int ipmIrqCmd(int carrier, int slot, 
-		int irqNumber, ipac_irqCmd_t cmd);
-epicsShareFunc int ipmIntConnect(int carrier, int slot, int vector, 
-		void (*routine)(int parameter), int parameter);
+epicsShareFunc int ipmCheck(unsigned short carrier, unsigned short slot);
+epicsShareFunc int ipmValidate(unsigned short carrier, unsigned short slot,
+		unsigned char manufacturerId, const unsigned char modelId);
+epicsShareFunc char *ipmReport(unsigned short carrier, unsigned short slot);
+epicsShareFunc void *ipmBaseAddr(unsigned short carrier, unsigned short slot, ipac_addr_t space);
+epicsShareFunc int ipmIrqCmd(unsigned short carrier, unsigned short slot, 
+		unsigned short irqNumber, ipac_irqCmd_t cmd);
+epicsShareFunc int ipmIntConnect(unsigned short carrier, unsigned short slot, unsigned short vector, 
+		void (*routine)(void * parameter), void * parameter);
 
 
 #ifdef __cplusplus
