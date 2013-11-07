@@ -84,8 +84,8 @@ typedef struct _carrierIsr
 {
      unsigned short carrier;
      struct _slots {
-       int (*ISR)(int param);
-       int param;
+       int (*ISR)(void * param);
+       void * param;
      } slots[4];
 } CARRIERISR;
 
@@ -481,9 +481,9 @@ epicsThreadId ipApcie8650WaitForInts(struct configApcie8650 *pconfig)
 }
 /*
     int (*intConnect)(void *cPrivate, unsigned short slot, unsigned short vecNum,
-                void (*routine)(int parameter), int parameter);
+                void (*routine)(void * parameter), void * parameter);
 */
-LOCAL int intConnect(void *cPrivate, unsigned short slot, unsigned short vec, void (*routine)(int param), int param )
+LOCAL int intConnect(void *cPrivate, unsigned short slot, unsigned short vec, void (*routine)(void * param), void * param )
 {
   carrierISR.slots[slot].ISR = (int(*)()) routine;
   carrierISR.slots[slot].param = param;

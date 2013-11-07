@@ -560,8 +560,8 @@ int ipmIntConnect (
 	unsigned short carrier, 
 	unsigned short slot, 
 	unsigned short vecNum, 
-	void (*routine)(int parameter), 
-	int parameter
+	void (*routine)(void * parameter), 
+	void * parameter
 ) {
     if (vecNum > 0xff ||
     	carrier >= carriers.number ||
@@ -572,9 +572,9 @@ int ipmIntConnect (
     /* Use intConnect if carrier driver doesn't provide one */
     if (carriers.info[carrier].driver->intConnect == NULL) {
 #ifdef NO_EPICS
-	return intConnect (INUM_TO_IVEC((int)vecNum), routine, parameter);
+        return intConnect (INUM_TO_IVEC((int)vecNum), routine, (int) parameter);
 #else
-        return devConnectInterruptVME (vecNum, (void(*)())routine, (void*)parameter);
+        return devConnectInterruptVME (vecNum, (void(*)())routine, parameter);
 #endif
     }
 

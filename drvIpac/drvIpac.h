@@ -164,7 +164,7 @@ typedef struct {
 		unsigned short irqNumber, ipac_irqCmd_t cmd);
 			/* Interrupt manipulation */
     int (*intConnect)(void *cPrivate, unsigned short slot, unsigned short vecNum, 
-		void (*routine)(int parameter), int parameter);
+		void (*routine)(void * parameter), void * parameter);
 			/* Connect routine to interrupt vector */
 } ipac_carrier_t;
 
@@ -186,7 +186,7 @@ extern void *ipmBaseAddr(unsigned short carrier, unsigned short slot, ipac_addr_
 extern int ipmIrqCmd(unsigned short carrier, unsigned short slot, 
 		unsigned short irqNumber, ipac_irqCmd_t cmd);
 extern int ipmIntConnect(unsigned short carrier, unsigned short slot, unsigned short vector, 
-		void (*routine)(int parameter), int parameter);
+		void (*routine)(void * parameter), void * parameter);
 
 
 #ifdef __cplusplus

@@ -29,6 +29,7 @@
 #include <drvIpac.h>
 #include <epicsExport.h>
 #include <iocsh.h>
+#include <errlog.h>
 
 #define MANUFACTURER_HYTEC	0x80
 #define HYTEC_PROM_MODEL	0x82
@@ -1050,14 +1051,14 @@ irqCmd(void *cPrivate, unsigned short slot, unsigned short irqnum, ipac_irqCmd_t
 
 /* Connect routine to interrupt vector */
 static int
-carintConnect(void *cPrivate, unsigned short slot, unsigned short intnum, void (*routine) (int parameter), int parm)
+carintConnect(void *cPrivate, unsigned short slot, unsigned short intnum, void (*routine) (void * parameter), void * parm)
 	{
         int inttmp = intnum;
 
         /*
            begin
          */
-        return devConnectInterruptVME(inttmp, (void (*)()) routine, (void *) parm);
+        return devConnectInterruptVME(inttmp, (void (*)()) routine, parm);
 	}
 
 

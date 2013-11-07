@@ -365,37 +365,152 @@ LOCAL char *report( void *private, unsigned short slot )
   struct private9660 *p;
   struct map9660     *map_ptr;
   struct config9660  *cptr;
-  static char        report[1024];
+  static char        reportBuf[1024];
 
-  memset(report, '\0', 1024);
+  memset(reportBuf, '\0', 1024);
   p       = (struct private9660 *)private;
   cptr    = p->pconfig;
   map_ptr = cptr->brd_ptr;
 
   if( slot == 0 )
   {
-    sprintf(report, "\nStatus Register:\t\t0x%x\nInterrupt Level Register:\t0x%x\nError Register:\t\t\t0x%x\nMemory Enable Register:\t\t0x%x\nIPA memory base addr & size:\t0x%x\nIPB memory base addr & size:\t0x%x\nIPC memory base addr & size:\t0x%x\nIPD memory base addr & size:\t0x%x\nInterrupt Enable Register:\t0x%x\nInterrupt Pending Register:\t0x%x\nInterrupt Clear Register:\t0x%x\nAttribute mask:\t\t\t0x%x\nParameter mask:\t\t\t0x%x\n", map_ptr->sts_reg, map_ptr->lev_reg, map_ptr->err_reg, map_ptr->mem_en_reg, map_ptr->ipambasr, map_ptr->ipbmbasr, map_ptr->ipcmbasr, map_ptr->ipdmbasr, map_ptr->en_reg, map_ptr->pnd_reg, map_ptr->clr_reg, cptr->attr, cptr->param);
+    sprintf(	reportBuf,
+				"\n"
+				"Status Register:\t\t0x%x\n"
+				"Interrupt Level Register:\t0x%x\n"
+				"Error Register:\t\t\t0x%x\n"
+				"Memory Enable Register:\t\t0x%x\n"
+				"IPA memory base addr & size:\t0x%x\n"
+				"IPB memory base addr & size:\t0x%x\n"
+				"IPC memory base addr & size:\t0x%x\n"
+				"IPD memory base addr & size:\t0x%x\n"
+				"Interrupt Enable Register:\t0x%x\n"
+				"Interrupt Pending Register:\t0x%x\n"
+				"Interrupt Clear Register:\t0x%x\n"
+				"Attribute mask:\t\t\t0x%x\n"
+				"Parameter mask:\t\t\t0x%x\n",
+				map_ptr->sts_reg,
+				map_ptr->lev_reg,
+				map_ptr->err_reg,
+				map_ptr->mem_en_reg,
+				map_ptr->ipambasr,
+				map_ptr->ipbmbasr,
+				map_ptr->ipcmbasr,
+				map_ptr->ipdmbasr,
+				map_ptr->en_reg,
+				map_ptr->pnd_reg,
+				map_ptr->clr_reg,
+				cptr->attr,
+				cptr->param);
 
     if( ipmCheck(cptr->card, slot)==0 )
-      sprintf(report+strlen(report), "\nIdentification:\t\t%c%c%c%c\nManufacturer's ID:\t0x%x\nIP Model Number:\t0x%x\nRevision:\t\t0x%x\nReserved:\t\t0x%x\nDriver I.D. (low):\t0x%x\nDriver I.D. (high):\t0x%x\nTotal I.D. Bytes:\t0x%x\nCRC:\t\t\t0x%x\n", map_ptr->id_map_a[0].prom_a, map_ptr->id_map_a[1].prom_a, map_ptr->id_map_a[2].prom_a, map_ptr->id_map_a[3].prom_a, map_ptr->id_map_a[4].prom_a, map_ptr->id_map_a[5].prom_a, map_ptr->id_map_a[6].prom_a, map_ptr->id_map_a[7].prom_a, map_ptr->id_map_a[8].prom_a, map_ptr->id_map_a[9].prom_a, map_ptr->id_map_a[10].prom_a, map_ptr->id_map_a[11].prom_a);
+      sprintf(	reportBuf+strlen(reportBuf),
+	  			"\n"
+				"Identification:\t\t%c%c%c%c\n"
+				"Manufacturer's ID:\t0x%x\n"
+				"IP Model Number:\t0x%x\n"
+				"Revision:\t\t0x%x\n"
+				"Reserved:\t\t0x%x\n"
+				"Driver I.D. (low):\t0x%x\n"
+				"Driver I.D. (high):\t0x%x\n"
+				"Total I.D. Bytes:\t0x%x\n"
+				"CRC:\t\t\t0x%x\n",
+				map_ptr->id_map_a[0].prom_a,
+				map_ptr->id_map_a[1].prom_a,
+				map_ptr->id_map_a[2].prom_a,
+				map_ptr->id_map_a[3].prom_a,
+				map_ptr->id_map_a[4].prom_a,
+				map_ptr->id_map_a[5].prom_a,
+				map_ptr->id_map_a[6].prom_a,
+				map_ptr->id_map_a[7].prom_a,
+				map_ptr->id_map_a[8].prom_a,
+				map_ptr->id_map_a[9].prom_a,
+				map_ptr->id_map_a[10].prom_a,
+				map_ptr->id_map_a[11].prom_a);
   }
   else if( slot == 1 )
   {
     if( ipmCheck(cptr->card, slot)==0 )
-      sprintf(report, "\nIdentification:\t\t%c%c%c%c\nManufacturer's ID:\t0x%x\nIP Model Number:\t0x%x\nRevision:\t\t0x%x\nReserved:\t\t0x%x\nDriver I.D. (low):\t0x%x\nDriver I.D. (high):\t0x%x\nTotal I.D. Bytes:\t0x%x\nCRC:\t\t\t0x%x\n", map_ptr->id_map_b[0].prom_b, map_ptr->id_map_b[1].prom_b, map_ptr->id_map_b[2].prom_b, map_ptr->id_map_b[3].prom_b, map_ptr->id_map_b[4].prom_b, map_ptr->id_map_b[5].prom_b, map_ptr->id_map_b[6].prom_b, map_ptr->id_map_b[7].prom_b, map_ptr->id_map_b[8].prom_b, map_ptr->id_map_b[9].prom_b, map_ptr->id_map_b[10].prom_b, map_ptr->id_map_b[11].prom_b);
+      sprintf(	reportBuf,
+	  			"\n"
+				"Identification:\t\t%c%c%c%c\n"
+				"Manufacturer's ID:\t0x%x\n"
+				"IP Model Number:\t0x%x\n"
+				"Revision:\t\t0x%x\n"
+				"Reserved:\t\t0x%x\n"
+				"Driver I.D. (low):\t0x%x\n"
+				"Driver I.D. (high):\t0x%x\n"
+				"Total I.D. Bytes:\t0x%x\n"
+				"CRC:\t\t\t0x%x\n",
+				map_ptr->id_map_b[0].prom_b,
+				map_ptr->id_map_b[1].prom_b,
+				map_ptr->id_map_b[2].prom_b,
+				map_ptr->id_map_b[3].prom_b,
+				map_ptr->id_map_b[4].prom_b,
+				map_ptr->id_map_b[5].prom_b,
+				map_ptr->id_map_b[6].prom_b,
+				map_ptr->id_map_b[7].prom_b,
+				map_ptr->id_map_b[8].prom_b,
+				map_ptr->id_map_b[9].prom_b,
+				map_ptr->id_map_b[10].prom_b,
+				map_ptr->id_map_b[11].prom_b);
   }
   else if( slot == 2 )
   {
     if( ipmCheck(cptr->card, slot)==0 )
-      sprintf(report, "\nIdentification:\t\t%c%c%c%c\nManufacturer's ID:\t0x%x\nIP Model Number:\t0x%x\nRevision:\t\t0x%x\nReserved:\t\t0x%x\nDriver I.D. (low):\t0x%x\nDriver I.D. (high):\t0x%x\nTotal I.D. Bytes:\t0x%x\nCRC:\t\t\t0x%x\n", map_ptr->id_map_c[0].prom_c, map_ptr->id_map_c[1].prom_c, map_ptr->id_map_c[2].prom_c, map_ptr->id_map_c[3].prom_c, map_ptr->id_map_c[4].prom_c, map_ptr->id_map_c[5].prom_c, map_ptr->id_map_c[6].prom_c, map_ptr->id_map_c[7].prom_c, map_ptr->id_map_c[8].prom_c, map_ptr->id_map_c[9].prom_c, map_ptr->id_map_c[10].prom_c, map_ptr->id_map_c[11].prom_c);
+      sprintf(	reportBuf,
+	  			"\n"
+				"Identification:\t\t%c%c%c%c\n"
+				"Manufacturer's ID:\t0x%x\n"
+				"IP Model Number:\t0x%x\n"
+				"Revision:\t\t0x%x\n"
+				"Reserved:\t\t0x%x\n"
+				"Driver I.D. (low):\t0x%x\n"
+				"Driver I.D. (high):\t0x%x\n"
+				"Total I.D. Bytes:\t0x%x\n"
+				"CRC:\t\t\t0x%x\n",
+				map_ptr->id_map_c[0].prom_c,
+				map_ptr->id_map_c[1].prom_c,
+				map_ptr->id_map_c[2].prom_c,
+				map_ptr->id_map_c[3].prom_c,
+				map_ptr->id_map_c[4].prom_c,
+				map_ptr->id_map_c[5].prom_c,
+				map_ptr->id_map_c[6].prom_c,
+				map_ptr->id_map_c[7].prom_c,
+				map_ptr->id_map_c[8].prom_c,
+				map_ptr->id_map_c[9].prom_c,
+				map_ptr->id_map_c[10].prom_c,
+				map_ptr->id_map_c[11].prom_c);
   }
   else if( slot == 3 )
   {
     if( ipmCheck(cptr->card, slot)==0 )
-      sprintf(report, "\nIdentification:\t\t%c%c%c%c\nManufacturer's ID:\t0x%x\nIP Model Number:\t0x%x\nRevision:\t\t0x%x\nReserved:\t\t0x%x\nDriver I.D. (low):\t0x%x\nDriver I.D. (high):\t0x%x\nTotal I.D. Bytes:\t0x%x\nCRC:\t\t\t0x%x\n", map_ptr->id_map_d[0].prom_d, map_ptr->id_map_d[1].prom_d, map_ptr->id_map_d[2].prom_d, map_ptr->id_map_d[3].prom_d, map_ptr->id_map_d[4].prom_d, map_ptr->id_map_d[5].prom_d, map_ptr->id_map_d[6].prom_d, map_ptr->id_map_d[7].prom_d, map_ptr->id_map_d[8].prom_d, map_ptr->id_map_d[9].prom_d, map_ptr->id_map_d[10].prom_d, map_ptr->id_map_d[11].prom_d);
+      sprintf(	reportBuf,
+	  			"\n"
+				"Identification:\t\t%c%c%c%c\n"
+				"Manufacturer's ID:\t0x%x\n"
+				"IP Model Number:\t0x%x\n"
+				"Revision:\t\t0x%x\n"
+				"Reserved:\t\t0x%x\n"
+				"Driver I.D. (low):\t0x%x\n"
+				"Driver I.D. (high):\t0x%x\n"
+				"Total I.D. Bytes:\t0x%x\n"
+				"CRC:\t\t\t0x%x\n",
+				map_ptr->id_map_d[0].prom_d,
+				map_ptr->id_map_d[1].prom_d,
+				map_ptr->id_map_d[2].prom_d,
+				map_ptr->id_map_d[3].prom_d,
+				map_ptr->id_map_d[4].prom_d,
+				map_ptr->id_map_d[5].prom_d,
+				map_ptr->id_map_d[6].prom_d,
+				map_ptr->id_map_d[7].prom_d,
+				map_ptr->id_map_d[8].prom_d,
+				map_ptr->id_map_d[9].prom_d,
+				map_ptr->id_map_d[10].prom_d,
+				map_ptr->id_map_d[11].prom_d);
   }
 
-  return(report);
+  return(reportBuf);
 }
 
 
@@ -512,13 +627,13 @@ LOCAL char *strdupn( const char *ct, size_t n )
 /* IPAC Carrier Table */
 
 ipac_carrier_t xy9660 = {
-    "XVME9660",
-    SLOTS,
-    initialise,
-    report,
-    baseAddr,
-    irqCmd,
-    NULL
+    "XVME9660",		/* char * carrierType	*/
+    SLOTS,			/* unsigned short numberSlots */
+    initialise,		/* int (*initialise)(const char *cardParms, void **cPrivate, unsigned short carrier) */
+    report,			/* char *(*report)(void *cPrivate, unsigned short slot) */
+    baseAddr,		/* void *(*baseAddr)(void *cPrivate, unsigned short slot, ipac_addr_t space ) */
+    irqCmd,			/* int (*irqCmd)(void *cPrivate, unsigned short slot, unsigned short irqNumber, ipac_irqCmd_t cmd) */
+    NULL			/* int (*intConnect)(void *cPrivate, unsigned short slot, unsigned short vecNum, void (*routine)(void * parameter), void * parameter) */
 };
 
 int ipacAddXVME9660(const char *cardParams) {

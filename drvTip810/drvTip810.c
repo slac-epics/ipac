@@ -885,7 +885,7 @@ int t810Initialise (
 	    status = errno;
 	}
 #else
-	if ((err=ipmIntConnect(pdevice->card, pdevice->slot, pdevice->irqNum, (void(*)())t810ISR, (int)pdevice))) {
+	if ((err=ipmIntConnect(pdevice->card, pdevice->slot, pdevice->irqNum, (void(*)())t810ISR, pdevice))) {
 		status = err;
 	}
 #endif
