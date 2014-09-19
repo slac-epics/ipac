@@ -31,6 +31,8 @@
 #
 #==============================================================
 #
+ipac-R2-11_1-1:  Added support for uTCA carriers Hytec 7003 and TAMC 220
+
 ipac-R2-11_1-0:   Build for all target architectures.
 
 ipac-R2-11-lcls1: Updated with new version 2-11 from ANL

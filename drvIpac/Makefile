@@ -24,6 +24,10 @@ LIBSRCS += drvTvme200.c
 LIBSRCS += drvXy9660.c
 LIBSRCS += drvHy8002.c
 
+#uTCA carriers supported on Linux-x86
+LIBSRCS_Linux += drvHyLinuxCarrier.c
+LIBSRCS_Linux += drvTamc220.c
+
 # MVME162 & MVME172: IPchip carrier driver
 LIBSRCS_vxWorks += drvIpMv162.c
 
