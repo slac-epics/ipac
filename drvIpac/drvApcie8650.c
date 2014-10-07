@@ -298,7 +298,12 @@ LOCAL int irqCmd( void *private, unsigned short slot, unsigned short irqNumber, 
 	case ipac_irqGetLevel:
 	    return IRQ_LEVEL;
 
-	case ipac_irqClear: /* no 'clear' on APCI8650 so just enable */
+	case ipac_irqClear:
+            {
+                volatile word *slotInt = &pconfig->brd_ptr->slotAInt0;
+                word vector = slotInt[2*slot] + slotInt[2*slot+1];
+                break;
+            }
         case ipac_irqEnable:
             switch(slot)
             {
@@ -444,7 +449,6 @@ epicsThreadId ipApcie8650WaitForInts(struct configApcie8650 *pconfig)
     int slot;
     int oldicount = 10;
     char imsg[64];
-    volatile word *slotInt;
 
     while(1)
     {
@@ -465,7 +469,6 @@ epicsThreadId ipApcie8650WaitForInts(struct configApcie8650 *pconfig)
         }
 
         /* figure out which slot */
-        slotInt = &pconfig->brd_ptr->slotAInt0;
         for (slot = 0; slot < 4; slot++)
         {
             ipr = pconfig->brd_ptr->intPending;
@@ -478,8 +481,6 @@ epicsThreadId ipApcie8650WaitForInts(struct configApcie8650 *pconfig)
                 }
                 if (carrierISR.slots[slot].ISR != NULL)
                     carrierISR.slots[slot].ISR(carrierISR.slots[slot].param);
-                ipr += *slotInt++;    /* Clear the interrupts!! */
-                ipr += *slotInt++;
             }
         }
     }
