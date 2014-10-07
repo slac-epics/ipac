@@ -302,7 +302,7 @@ LOCAL int irqCmd( void *private, unsigned short slot, unsigned short irqNumber, 
             {
                 volatile word *slotInt = &pconfig->brd_ptr->slotAInt0;
                 word vector = slotInt[2*slot] + slotInt[2*slot+1];
-                break;
+                return OK;
             }
         case ipac_irqEnable:
             switch(slot)
