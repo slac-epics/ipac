@@ -212,6 +212,7 @@ LOCAL int initialise( const char *cardParams, void **pprivate, unsigned short ca
     pconfig->uioClassPathConfigFd = uioClassPathConfigFd;
     pconfig->uioClassPathMMIOFd = uioClassPathMMIOFd;
     pconfig->ioBase = ioBase;
+    pconfig->brd_ptr = (struct mapApcie8650 *) ioBase;
 
     pApcie8650->pconfig = pconfig;
     *pprivate      = pApcie8650;
@@ -443,6 +444,7 @@ epicsThreadId ipApcie8650WaitForInts(struct configApcie8650 *pconfig)
     int slot;
     int oldicount = 10;
     char imsg[64];
+    volatile word *slotInt;
 
     while(1)
     {
@@ -461,10 +463,12 @@ epicsThreadId ipApcie8650WaitForInts(struct configApcie8650 *pconfig)
             perror("uio read:");
             return((epicsThreadId)-1);
         }
+
         /* figure out which slot */
+        slotInt = &pconfig->brd_ptr->slotAInt0;
         for (slot = 0; slot < 4; slot++)
         {
-            ipr = *((unsigned short *)pconfig->ioBase + 0x1);
+            ipr = pconfig->brd_ptr->intPending;
             if (ipr & (0x03 << (slot * 2)))
             {
                 if (0)
@@ -474,6 +478,8 @@ epicsThreadId ipApcie8650WaitForInts(struct configApcie8650 *pconfig)
                 }
                 if (carrierISR.slots[slot].ISR != NULL)
                     carrierISR.slots[slot].ISR(carrierISR.slots[slot].param);
+                ipr += *slotInt++;    /* Clear the interrupts!! */
+                ipr += *slotInt++;
             }
         }
     }
