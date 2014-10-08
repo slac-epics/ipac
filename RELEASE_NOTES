@@ -31,6 +31,9 @@
 #
 #==============================================================
 #
+ipac-R2-11_1-2:  Changed drvHyLinuxCarrier.c to use 'O_RDWR' instead of incorrect kernel
+                 flags 'MAY_READ' and 'MAY_WRITE'.
+
 ipac-R2-11_1-1:  Added support for uTCA carriers Hytec 7003 and TAMC 220
 
 ipac-R2-11_1-0:   Build for all target architectures.

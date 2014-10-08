@@ -25,7 +25,7 @@ Created:
     27/10/2010 first version.
 
 Version:
-    $Id: drvHyLinuxCarrier.c 2.0 2010-11-26 12:21$
+    $Id: drvHyLinuxCarrier.c,v 1.1 2014/09/19 16:31:30 rdabney Exp $
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -80,7 +80,9 @@ Modifications:
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/types.h>
+#if	9
 #include <linux/fs.h>
+#endif
 #include <curses.h>
 #include <pthread.h>
 #include <errno.h>
@@ -286,7 +288,7 @@ static int initialise(const char *cp, void **cPrivate, epicsUInt16 carrier)
         strcpy(devname, defaultname);							//set device to default
 
     puts(devname);
-    pv->devHandler = open(devname, MAY_WRITE | MAY_READ);		//open device driver
+    pv->devHandler = open(devname, O_RDWR);		//open device driver
     if (pv->devHandler < 0) 
     {
         printf("open %d\n", pv->devHandler);
