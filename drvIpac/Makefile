@@ -27,6 +27,9 @@ LIBSRCS += drvHy8002.c
 #uTCA carriers supported on Linux-x86
 LIBSRCS_Linux += drvHyLinuxCarrier.c
 LIBSRCS_Linux += drvTamc220.c
+#null stubs so other platforms don't have problems 
+LIBSRCS_DEFAULT += nullHyLinuxCarrier.c
+LIBSRCS_DEFAULT += nullTamc220.c
 
 # MVME162 & MVME172: IPchip carrier driver
 LIBSRCS_vxWorks += drvIpMv162.c
