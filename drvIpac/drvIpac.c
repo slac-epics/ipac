@@ -53,7 +53,17 @@ Copyright (c) 1995-2000 Andrew Johnson
 #endif
 #include "drvIpac.h"
 
-
+static struct modelnames {
+    unsigned char model;
+    char *name;
+} modelnames[] = {
+    { 0x33, "ip231 (16)" },
+    { 0x34, "ip231 (8)" },
+    { 0x11, "ip330" },
+    { 0x10, "xy2440" },
+    { 0x9,  "xy2445" },
+    { 0,    NULL }
+};
 
 #define IPAC_MAX_CARRIERS 21
 
@@ -143,7 +153,7 @@ int ipacAddCarrier (
     ipac_carrier_t	*	pcarrierTable,
     const char		*	cardParams	)
 {
-    int status;
+    int status, i;
 
     if (carriers.number >= IPAC_MAX_CARRIERS) {
 	printf("ipacAddCarrier: Too many carriers registered.\n");
@@ -178,6 +188,24 @@ int ipacAddCarrier (
     }
 
     carriers.info[carriers.latest].driver = pcarrierTable;
+
+    printf("Examining slots...\n");
+    for (i = 0; i < pcarrierTable->numberSlots; i++) {
+
+        status = ipmCheck(carriers.latest, i);
+        if (!status) {
+            ipac_idProm_t *id = (ipac_idProm_t *) ipmBaseAddr(carriers.latest, i, ipac_addrID);
+            unsigned char modelId = id->modelId & 0xff;
+            int j;
+            for (j = 0; modelnames[j].name; j++)
+                if (modelId == modelnames[j].model)
+                    break;
+            if (modelnames[j].name)
+                printf("%2d  --- %s\n", i, modelnames[j].name);
+            else
+                printf("%2d  --- UNKNOWN?!? (0x%x)\n", i, modelId);
+        }
+    }
 
     return OK;
 }
