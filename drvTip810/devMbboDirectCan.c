@@ -14,7 +14,7 @@ Author:
 Created:
     14 August 1995
 Version:
-    $Id$
+    $Id: devMbboDirectCan.c,v 1.1.1.2 2011/04/13 14:31:39 ernesto Exp $
 
 Copyright (c) 1995-2000 Andrew Johnson
 

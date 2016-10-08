@@ -14,7 +14,7 @@ Author:
 Created:
     20 July 1995
 Version:
-    $Id$
+    $Id: drvTip810.h,v 1.1.1.2 2011/04/13 14:31:39 ernesto Exp $
 
 Copyright (c) 1995-2000 Andrew Johnson
 

@@ -12,6 +12,7 @@
 # for a subset of the cross-compiled target architectures
 # that Base is built for.
 #CROSS_COMPILER_TARGET_ARCHS = vxWorks-68040
+#CROSS_COMPILER_TARGET_ARCHS = RTEMS-beatnik RTEMS-mvme3100 RTEMS-uC5282
 
 # If you don't want to install into $(TOP) then
 # define INSTALL_LOCATION here

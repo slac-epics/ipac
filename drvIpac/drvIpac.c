@@ -15,7 +15,7 @@ Author:
 Created:
     3 July 1995
 Version:
-    $Id$
+    $Id: drvIpac.c,v 1.4 2011/04/13 14:44:40 ernesto Exp $
 
 Copyright (c) 1995-2007 Andrew Johnson
 
@@ -277,12 +277,19 @@ int ipcCheckId (
     if (id == NULL) {
 	return S_IPAC_badDriver;
     }
+#ifndef linux /* rnd */
     if (devReadProbe(sizeof(word), (void *)&id->asciiI, (char *)&word)) {
-	return S_IPAC_noModule;
+        return S_IPAC_noModule;
     }
     if ((word & 0xff) != 'I') {
-	return S_IPAC_noIpacId;
+        return S_IPAC_noIpacId;
     }
+#else
+    if ((id->asciiI & 0xff) != 'I') {
+        return S_IPAC_noIpacId;
+    }
+
+#endif
 
     /*
      * The Format-1 check is deliberately de-optimized to fix a problem with
