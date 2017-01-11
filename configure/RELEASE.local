@@ -1,27 +1,15 @@
 # RELEASE.local
 #
-# Fetch path relative EPICS_BASE and EPICS_MODULES
+# Read definitions of:
+#	EPICS_SITE_TOP
+#	BASE_MODULE_VERSION
+#	EPICS_MODULES 
 # from one of the following options
 -include $(TOP)/../../RELEASE_SITE
 -include $(TOP)/RELEASE_SITE
 
-# Check for multiple inclusions
-ifneq ($(wildcard "include $(TOP)/../../RELEASE_SITE"),)
-ifneq ($(wildcard "include $(TOP)/RELEASE_SITE"),)
-$(error Two RELEASE_SITE files found: $(TOP)/RELEASE_SITE and $(TOP)/../../RELEASE_SITE!)
-endif
-endif
-
-# Check for undefined EPICS_MODULES
-ifndef EPICS_MODULES
-	ifneq ($(wildcard "include $(TOP)/../../RELEASE_SITE"),)
-		$(info RELEASE_SITE Read: $(TOP)/../../RELEASE_SITE)
-	endif
-	ifneq ($(wildcard "include $(TOP)/RELEASE_SITE"),)
-		$(info RELEASE_SITE Read: $(TOP)/RELEASE_SITE)
-	endif
-	$(error EPICS_MODULES not defined!)
-endif
+# Check that EPICS_MODULES was defined in a RELEASE_SITE file
+-include $(TOP)/../../RELEASE_SITE.check
 
 # ==========================================================
 # Define the version strings for all needed modules
@@ -43,13 +31,5 @@ endif
 EPICS_BASE              = $(EPICS_SITE_TOP)/base/$(BASE_MODULE_VERSION)
 
 # Check for undefined EPICS_BASE
-ifndef EPICS_BASE
-	ifneq ($(wildcard "include $(TOP)/../../RELEASE_SITE"),)
-		$(info RELEASE_SITE Read: $(TOP)/../../RELEASE_SITE)
-	endif
-	ifneq ($(wildcard "include $(TOP)/RELEASE_SITE"),)
-		$(info RELEASE_SITE Read: $(TOP)/RELEASE_SITE)
-	endif
-	$(error EPICS_BASE not defined!)
-endif
+-include $(TOP)/../../EPICS_BASE.check
 
