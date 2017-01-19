@@ -28,7 +28,7 @@
 # ==========================================================
 
 # Set EPICS_BASE last so it appears last in the DB, DBD, INCLUDE, and LIB search paths
-EPICS_BASE              = $(EPICS_SITE_TOP)/base/$(BASE_MODULE_VERSION)
+EPICS_BASE = $(EPICS_SITE_TOP)/base/$(BASE_MODULE_VERSION)
 
 # Check for undefined EPICS_BASE
 -include $(TOP)/../../EPICS_BASE.check
