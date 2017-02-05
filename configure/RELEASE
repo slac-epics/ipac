@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # RELEASE
 # Defines location of external products
 # Run "gnumake clean uninstall install" in the application
@@ -6,3 +7,9 @@
 
 # Check for valid macro definitions for module release directories
 
+=======
+#RELEASE Location of external products
+
+-include $(TOP)/configure/RELEASE.local
+
+>>>>>>> a7bed0a20b292edd1cdd7aa606e12cfbd599cf0f
