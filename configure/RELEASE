@@ -1,5 +1,8 @@
-#RELEASE Location of external products
+# RELEASE
+# Defines location of external products
 # Run "gnumake clean uninstall install" in the application
 # top directory each time this file is changed.
+-include $(TOP)/configure/RELEASE.local
 
-EPICS_BASE=/home/phoebus/ANJ/epics/base/3-14-dev
+# Check for valid macro definitions for module release directories
+
