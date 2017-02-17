@@ -31,6 +31,8 @@
 #
 #==============================================================
 #
+R2.11-1.5.0:	Added support for Acromag PCIe carrier card.  jmock, Feb 15, 2016
+
 R2.11-1.4.0:	Tweaked build to set EPICS_BASE last.  bhill, Oct 15, 2016
 
 R2.11-1.3.0:	bhill, Oct 8, 2016
