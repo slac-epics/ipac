@@ -31,6 +31,8 @@
 #
 #==============================================================
 #
+ipac-R2-11_1-3:  Added support for IP520 with RTEMS support
+
 ipac-R2-11_1-2:  Changed drvHyLinuxCarrier.c to use 'O_RDWR' instead of incorrect kernel
                  flags 'MAY_READ' and 'MAY_WRITE'.
                  Added null registrars for uTCA drivers when compiled for RTEMS/VME
