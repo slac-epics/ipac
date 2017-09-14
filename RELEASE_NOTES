@@ -31,6 +31,10 @@
 #
 #==============================================================
 #
+R2.11-1.5.1:	bhill, Sep 14, 2017
+				Removed hard coded CROSS_COMPILER_TARGET_ARCHS
+				Added missing include of epicsExit.h
+
 R2.11-1.5.0:	Added support for Acromag PCIe carrier card.  jmock, Feb 15, 2016
 
 R2.11-1.4.0:	Tweaked build to set EPICS_BASE last.  bhill, Oct 15, 2016
