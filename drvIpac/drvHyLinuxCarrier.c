@@ -71,6 +71,7 @@ Modifications:
 /*EPICS specific*/
 #include <devLib.h>
 #include "epicsExport.h"
+#include <epicsExit.h>
 #include "iocsh.h"
 
 /*Linux specific*/
