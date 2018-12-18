@@ -31,6 +31,9 @@
 #
 #==============================================================
 #
+R2.11-1.6.0:    marcio, Dec 18, 2018
+                - Merged with ipac-R2-11_1-3 to get support for ip520.
+
 R2.11-1.5.1:	bhill, Sep 14, 2017
 				Removed hard coded CROSS_COMPILER_TARGET_ARCHS
 				Added missing include of epicsExit.h
