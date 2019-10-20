@@ -3,6 +3,10 @@
 #
 #  Rem:  This file contains the release notes for ipac module
 #
+
+R2.14-0.2.0     Oct 19, 2019
+                    uncomment registrar(xy9660Registrar) and registrar(Hy8002Registrar) in drvIpac.dbd
+
 R2.14-0.1.0:	New git work-flow compatible build based on tag 2.14 bhill, Nov 30, 2016
 				NOTE: Does NOT include SLAC improvements such as Dabney's linux 8650
 				support from the PCDS svn history or his uTCA Hy7003 and TAMC220 support
