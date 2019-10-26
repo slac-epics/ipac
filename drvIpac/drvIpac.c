@@ -282,9 +282,16 @@ int ipcCheckId (
 	return S_IPAC_badDriver;
     }
     word = id->asciiI;
+
+#ifndef linux /* rnd */
     if ((word & 0xff) != 'I') {
 	return S_IPAC_noIpacId;
     }
+#else
+    if ((id->asciiI & 0xff) != 'I') {
+        return S_IPAC_noIpacId;
+     }
+#endif
 
     /*
      * The Format-1 check is deliberately de-optimized to fix a problem with
@@ -355,7 +362,7 @@ int ipmCheck (
 
     if (carriers.info[carrier].driver->moduleProbe == NULL) {
 	epicsUInt16 word;
-
+#ifndef linux /* rnd *
 	if (devReadProbe(sizeof(word), (void *)&id->asciiI, (char *)&word)) {
 	    return S_IPAC_noModule;
 	}
@@ -365,6 +372,7 @@ int ipmCheck (
 		carriers.info[carrier].cPrivate, slot) == 0)
 	return S_IPAC_noModule;
     }
+#endif
     return ipcCheckId(id);
 }
 
