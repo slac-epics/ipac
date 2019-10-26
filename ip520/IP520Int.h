@@ -18,7 +18,13 @@ HeadURL:        $URL$
 #ifndef INC_IP520_H
 #define INC_IP520_H
 
+#ifdef vxWorks
 #include <tyLib.h>  /* For TY_DEV. */
+#else
+/* not VxWorks */
+typedef void *TY_DEV;
+#endif
+
 #include <epicsTypes.h>
 
 typedef enum {RS232, RS422, RS485} RSmode;  /* IP520 - RS232 only, IP521 - RS422 or RS485 */
