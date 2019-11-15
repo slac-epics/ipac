@@ -1,3 +1,7 @@
+R2.15-1.0.0 :  Marcio Donadio (marcio) - Nov/15/2019
+               - Added source code for the additional boards used at SLAC.
+               - Added compiler directives to deal with non Linux OS.
+
 R2.15-0.1.0 :  Marcio Donadio (marcio) - Oct/22/2019
                - Importing new version from collaboration.
                - Modified to build for SLAC workflow.
