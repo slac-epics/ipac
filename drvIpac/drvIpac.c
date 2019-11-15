@@ -362,7 +362,7 @@ int ipmCheck (
 
     if (carriers.info[carrier].driver->moduleProbe == NULL) {
 	epicsUInt16 word;
-#ifndef linux /* rnd *
+#ifndef linux /* rnd */
 	if (devReadProbe(sizeof(word), (void *)&id->asciiI, (char *)&word)) {
 	    return S_IPAC_noModule;
 	}
@@ -371,8 +371,8 @@ int ipmCheck (
 	if (carriers.info[carrier].driver->moduleProbe(
 		carriers.info[carrier].cPrivate, slot) == 0)
 	return S_IPAC_noModule;
-    }
 #endif
+    }
     return ipcCheckId(id);
 }
 
