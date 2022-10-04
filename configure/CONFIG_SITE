@@ -12,6 +12,7 @@
 # for a subset of the cross-compiled target architectures
 # that Base is built for.
 #CROSS_COMPILER_TARGET_ARCHS = RTEMS-beatnik linux-x86_64
+CROSS_COMPILER_TARGET_ARCHS =
 
 #BUILD_FOR_HOST_ARCH = 
 

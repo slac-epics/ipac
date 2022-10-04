@@ -6,14 +6,15 @@ DBD += drvIpac.dbd
 LIBSRCS += drvIpac.c
 
 ifeq ($(T_A),$(findstring $(T_A), "linux-x86 linux-x86_64 rhel7-x86_64"))
-
 DBD += drvApcie8650.dbd
 LIBSRCS += drvApcie8650.c
 LIBRARY_IOC = Ipac
 INC += drvApcie8650.h
+INC += drvIpac.h
+INC += drvXy9660.h
+INC += xipIo.h
 
 else
-
 DBD += drv8002.dbd
 DBD += drvXy9660.dbd
 
