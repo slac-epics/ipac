@@ -1,3 +1,6 @@
+R2.15-1.0.1 :  Vincent Esposito (espov) - Oct/5/2022
+               - Add xipIo.h back to the drvIpac Makefile
+
 R2.15-1.0.0 :  Marcio Donadio (marcio) - Nov/15/2019
                - Added source code for the additional boards used at SLAC.
                - Added compiler directives to deal with non Linux OS.
