@@ -7,6 +7,7 @@ DBD += drvApcie8650.dbd
 
 INC += drvIpac.h
 INC += drvApcie8650.h
+INC += xipIo.h
 
 HTMLS_DIR = .
 HTMLS += index.html
