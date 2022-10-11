@@ -33,6 +33,7 @@ Created:
 #else
 #include "devLib.h"
 #include "drvSup.h"
+#include "errlog.h"
 #endif
 #include "epicsThread.h"
 #include "epicsInterrupt.h"

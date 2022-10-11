@@ -202,7 +202,7 @@ typedef struct privinfo{
 	word ipintsel;                                	/* IP cards interrupt settings in CSR. This is only used for reporting purpose */
 	int devHandler;
 	int carrierType;
-	int ipadresses[NUMIPSLOTS][IPAC_ADDR_SPACES]; 	/* address mapping */
+	volatile void * ipadresses[NUMIPSLOTS][IPAC_ADDR_SPACES]; 	/* address mapping */
 	pthread_t thread;								/* interrupt thread */
 
 	/* the following are mainly used for multi-carrier cards support */
@@ -220,7 +220,9 @@ struct irq_desc {
 };
 
 /************GLOBAL VARIABLES********************/
+#if	0
 static privinfo *carlist = NULL;
+#endif
 /*static char* charid="drvHyLinuxCarrier";*/
 
 /* interrupt thread */
@@ -228,7 +230,7 @@ static void *interrupt_thread(void *arg);
 
 /* function prototype */
 static int regaddr(privinfo* pv);
-static int scanparm(char* cp, int* carrierslot, int* intlevel, int* ipclcka, int* ipclckb, int* ipclckc, int* ipclckd, int* ipclcke, int* ipclckf);
+static int scanparm(const char* cp, int* carrierslot, int* intlevel, int* ipclcka, int* ipclckb, int* ipclckc, int* ipclckd, int* ipclcke, int* ipclckf);
 long IOC9010CarrierWrite( void *cPrivate, ushort_t add, ushort_t data);
 long IOC9010CarrierRead( void *cPrivate, ushort_t add, ushort_t *data );
 int probe( void *cPrivate );
@@ -542,7 +544,7 @@ Returns:
 
 */
 static int intConnect(void *cPrivate, epicsUInt16 slot, epicsUInt16 vecNum,
-		void (*routine)(int parameter), int parameter)
+		void (*routine)(void * parameter), void * parameter)
 {
     pthread_attr_t attr;
     struct sched_param schp;
@@ -756,7 +758,7 @@ Return:
     Error code otherwise.
 
 */
-static int scanparm(char* cp,
+static int scanparm(const char* cp,
 		    int* carrierslot,
 		    int* intlevel,
 		    int* ipclcka,
@@ -880,8 +882,8 @@ Return:
 */
 static int regaddr(privinfo* pv){
 
-    volatile int addr;
-    int* ipadr=(int*)(pv->ipadresses);
+    volatile void * addr;
+    void ** ipadr=(void *)(pv->ipadresses);
     int ip,ia;
 
     /*Clear all address variables*/
@@ -890,10 +892,10 @@ static int regaddr(privinfo* pv){
           
     /* init the ipac_addrIO and ipac_addrID spaces*/
     for(ip=0;ip<NUMIPSLOTS;ip++){
-		addr = (int) pv->memoryBaseAddr + IP_IO_BASE_ADDR + IP_A_IO_BASE_ADDR + ((IP_B_ID_BASE_ADDR - IP_A_ID_BASE_ADDR) * ip);
-        pv->ipadresses[ip][ipac_addrIO]=addr;
+		addr = pv->memoryBaseAddr + IP_IO_BASE_ADDR + IP_A_IO_BASE_ADDR + ((IP_B_ID_BASE_ADDR - IP_A_ID_BASE_ADDR) * ip);
+        pv->ipadresses[ip][ipac_addrIO]= (void *) addr;
         pv->ipadresses[ip][ipac_addrID]=addr+0x80;
-        addr = (int) pv->memoryBaseAddr + (IP_B_MEMORY_BASE_ADDR - IP_A_MEMORY_BASE_ADDR) * ip;
+        addr = (void *) pv->memoryBaseAddr + (IP_B_MEMORY_BASE_ADDR - IP_A_MEMORY_BASE_ADDR) * ip;
         pv->ipadresses[ip][ipac_addrMem]=addr;
     }
 
