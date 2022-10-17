@@ -1,3 +1,7 @@
+R2.15-1.0.2 :  Vincent Esposito (espov) - Oct/17/2022
+               - Compile module for rhel7
+               - Fix pointer cast errors
+
 R2.15-1.0.1 :  Vincent Esposito (espov) - Oct/5/2022
                - Add xipIo.h back to the drvIpac Makefile
 
