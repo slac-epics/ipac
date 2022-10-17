@@ -301,7 +301,7 @@ LOCAL int irqCmd( void *private, unsigned short slot, unsigned short irqNumber, 
 	case ipac_irqClear:
             {
                 volatile word *slotInt = &pconfig->brd_ptr->slotAInt0;
-                word vector = slotInt[2*slot] + slotInt[2*slot+1];
+                word vector __attribute__((unused)) = slotInt[2*slot] + slotInt[2*slot+1];
                 return OK;
             }
         case ipac_irqEnable:

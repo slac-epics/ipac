@@ -192,7 +192,7 @@ typedef struct {
     /* The remaining routines are optional. Some drvIpac routines may call
      * devLib if these routines are NULL or not provided. */
     int (*intConnect)(void *cPrivate, epicsUInt16 slot, epicsUInt16 vecNum,
-		void (*routine)(int parameter), int parameter);
+		void (*routine)(void *parameter), void *parameter);
 			/* Connect routine to interrupt vector */
     int (*moduleProbe)(void *cPrivate, epicsUInt16 slot);
 			/* Return 0 if reading ID Prom would Bus Error */
@@ -222,7 +222,7 @@ epicsShareFunc void *ipmBaseAddr(int carrier, int slot, ipac_addr_t space);
 epicsShareFunc int ipmIrqCmd(int carrier, int slot, 
 		int irqNumber, ipac_irqCmd_t cmd);
 epicsShareFunc int ipmIntConnect(int carrier, int slot, int vector, 
-		void (*routine)(int parameter), int parameter);
+		void (*routine)(void *parameter), void *parameter);
 
 
 #ifdef __cplusplus

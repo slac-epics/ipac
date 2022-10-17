@@ -28,9 +28,14 @@ LIBSRCS += drvXy9660.c
 LIBSRCS += drvHy8002.c
 
 #uTCA carriers supported on Linux-x86
+ifeq ($(T_A),$(findstring $(T_A), "linux-x86"))
 LIBSRCS_Linux += drvHyLinuxCarrier.c
 LIBSRCS_Linux += drvTamc220.c
+else
 LIBSRCS_Linux += drvApcie8650.c
+LIBSRCS_Linux += nullHyLinuxCarrier.c
+LIBSRCS_Linux += nullTamc220.c
+endif
 #null stubs so other platforms don't have problems 
 LIBSRCS_DEFAULT += nullHyLinuxCarrier.c
 LIBSRCS_DEFAULT += nullTamc220.c

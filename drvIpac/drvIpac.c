@@ -361,7 +361,7 @@ int ipmCheck (
     id = (ipac_idProm_t *) ipmBaseAddr(carrier, slot, ipac_addrID);
 
     if (carriers.info[carrier].driver->moduleProbe == NULL) {
-	epicsUInt16 word;
+	epicsUInt16 word __attribute__((unused));
 #ifndef linux /* rnd */
 	if (devReadProbe(sizeof(word), (void *)&id->asciiI, (char *)&word)) {
 	    return S_IPAC_noModule;
@@ -725,8 +725,8 @@ Returns:
 
 #ifndef vxWorks
 struct intData {
-    void (*routine)(int parameter);
-    int parameter;
+    void (*routine)(void *parameter);
+    void *parameter;
 };
 LOCAL void intShim(void *parm) {
     struct intData *pisr = (struct intData *) parm;
@@ -738,8 +738,8 @@ int ipmIntConnect (
 	int carrier, 
 	int slot, 
 	int vecNum, 
-	void (*routine)(int parameter), 
-	int parameter
+	void (*routine)(void *parameter), 
+	void *parameter
 ) {
     if (carrier < 0 ||
 	carrier >= carriers.number ||
