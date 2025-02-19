@@ -12,6 +12,7 @@ HeadURL:        $URL$
  History:
  who  when       what
  ---  ---------- ------------------------------------------------
+ caf  2017/01/30 Include tyLib.h only if VXWORKS defined.
  RLS  2014/05/05 Original. Based on Andrew Johnson's "tyGSOctal".
 **************************************************************************/
 
