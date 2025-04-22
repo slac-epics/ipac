@@ -19,7 +19,10 @@
 #include <termios.h>
 #include <errno.h>
 #include <iocsh.h>
+#include <rtems.h>
+#if __RTEMS_MAJOR__<= 4
 #include <rtems/system.h>
+#endif
 #include <rtems/io.h>
 #include <rtems/error.h>
 #include <rtems/termiostypes.h>
