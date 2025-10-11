@@ -1,3 +1,6 @@
+R2.15-1.1.1 :  Jeremy Lorelli (lorelli) - Oct/10/2025
+               - Build fixes for RTEMS 6+
+
 R2.15-1.1.0 :  Jeremy Lorelli (lorelli) - Feb/19/2025
                - Add support for IP520 on RTEMS, code imported from R2.11 branch.
 
