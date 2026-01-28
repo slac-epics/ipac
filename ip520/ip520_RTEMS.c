@@ -34,6 +34,7 @@ Implentation Notes:
 #include <termios.h>
 #include <errno.h>
 #include <iocsh.h>
+#include <stddef.h>
 #include <rtems.h>
 #if __RTEMS_MAJOR__ <= 4
 #include <rtems/system.h>
@@ -74,8 +75,8 @@ static epicsUInt8 savedlcr;   /* Saved LCR value for EFROn & EFROff functions */
 static MOD_TABLE *IP520OctalFindQT(const char *);
 static void       IP520InitChannel(MOD_TABLE *, int);
 static void       IP520OptsSet(TY_IP520_DEV *, int);
-static int        IP520CallbackPollWrite     (int, const char *, int);
-static int        IP520CallbackInterruptWrite(int, const char *, int);
+static ssize_t    IP520CallbackPollWrite     (int, const char *, size_t);
+static ssize_t    IP520CallbackInterruptWrite(int, const char *, size_t);
 static int        IP520CallbackSetAttributes (int, const struct termios *);
 static void       IP520RebootHook(void *);
 static void       EFROn (REGMAP *);
@@ -189,8 +190,9 @@ static void IsrErrMsg(epicsUInt8 lsr, TY_IP520_DEV *dev)
  * Loop through each of the 8 ports, until no Rx or Tx processing required.
  *
  */
-void IP520Int(int mod)
+void IP520Int(void* parg)
 {
+    int mod = (int)parg;
     MOD_TABLE *pmod = &IP520Modules[mod];
     REGMAP    *regs;
     volatile epicsUInt8 dummy, *flush = NULL;
@@ -403,7 +405,7 @@ int IP520ModuleInit
         }
 
 #ifdef INCLUDE_IP520_INTERRUPT
-        if (ipmIntConnect(carrier, slot, int_num, IP520Int, IP520LastModule))
+        if (ipmIntConnect(carrier, slot, int_num, IP520Int, (void*)IP520LastModule))
         {
             printf("%s: Unable to connect ISR", fn_nm);
             return -1;
@@ -661,7 +663,7 @@ IP520CallbackSetAttributes(int minor, const struct termios *termios)
     return RTEMS_SUCCESSFUL;
 }
 
-static int IP520CallbackPollWrite(int minor, const char *buf, int n)
+static ssize_t IP520CallbackPollWrite(int minor, const char *buf, size_t n)
 {
     static char *fn_nm = "IP520CallbackPollWrite";
 
@@ -679,7 +681,7 @@ static int IP520CallbackPollWrite(int minor, const char *buf, int n)
     return n;
 }
 
-static int IP520CallbackInterruptWrite(int minor, const char *buf, int n)
+static ssize_t IP520CallbackInterruptWrite(int minor, const char *buf, size_t n)
 {
     MOD_TABLE *qt = &IP520Modules[minor/8];
     TY_IP520_DEV *dev = &qt->dev[minor%8];
