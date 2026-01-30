@@ -74,8 +74,8 @@ static epicsUInt8 savedlcr;   /* Saved LCR value for EFROn & EFROff functions */
 static MOD_TABLE *IP520OctalFindQT(const char *);
 static void       IP520InitChannel(MOD_TABLE *, int);
 static void       IP520OptsSet(TY_IP520_DEV *, int);
-static int        IP520CallbackPollWrite     (int, const char *, int);
-static int        IP520CallbackInterruptWrite(int, const char *, int);
+static ssize_t    IP520CallbackPollWrite     (int, const char *, size_t);
+static ssize_t    IP520CallbackInterruptWrite(int, const char *, size_t);
 static int        IP520CallbackSetAttributes (int, const struct termios *);
 static void       IP520RebootHook(void *);
 static void       EFROn (REGMAP *);
@@ -661,7 +661,7 @@ IP520CallbackSetAttributes(int minor, const struct termios *termios)
     return RTEMS_SUCCESSFUL;
 }
 
-static int IP520CallbackPollWrite(int minor, const char *buf, int n)
+static ssize_t IP520CallbackPollWrite(int minor, const char *buf, size_t n)
 {
     static char *fn_nm = "IP520CallbackPollWrite";
 
@@ -679,7 +679,7 @@ static int IP520CallbackPollWrite(int minor, const char *buf, int n)
     return n;
 }
 
-static int IP520CallbackInterruptWrite(int minor, const char *buf, int n)
+static ssize_t IP520CallbackInterruptWrite(int minor, const char *buf, size_t n)
 {
     MOD_TABLE *qt = &IP520Modules[minor/8];
     TY_IP520_DEV *dev = &qt->dev[minor%8];
