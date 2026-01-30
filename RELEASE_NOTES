@@ -1,23 +1,10 @@
-R2.15-1.2.0 :  Jeremy Lorelli (lorelli) - Jan/28/2025
-               - Build fixes for GCC 15+
-
-R2.15-1.1.1 :  Jeremy Lorelli (lorelli) - Oct/10/2025
+R2.16-1.0.0 :  Jeremy Lorelli (lorelli) - Jan/30/2026
+               - Build fixes for tamc220 and ip520
                - Build fixes for RTEMS 6+
-
-R2.15-1.1.0 :  Jeremy Lorelli (lorelli) - Feb/19/2025
                - Add support for IP520 on RTEMS, code imported from R2.11 branch.
-
-R2.15-1.0.2 :  Vincent Esposito (espov) - Oct/17/2022
                - Compile module for rhel7
-               - Fix pointer cast errors
-
-R2.15-1.0.1 :  Vincent Esposito (espov) - Oct/5/2022
                - Add xipIo.h back to the drvIpac Makefile
-
-R2.15-1.0.0 :  Marcio Donadio (marcio) - Nov/15/2019
                - Added source code for the additional boards used at SLAC.
                - Added compiler directives to deal with non Linux OS.
-
-R2.15-0.1.0 :  Marcio Donadio (marcio) - Oct/22/2019
                - Importing new version from collaboration.
                - Modified to build for SLAC workflow.
