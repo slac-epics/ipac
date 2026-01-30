@@ -27,12 +27,15 @@ Created:
 #include <errno.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <unistd.h>
 #ifdef NO_EPICS
 #include <vme.h>
 #include <sysLib.h>
+#define errlogPrintf printf
 #else
 #include "devLib.h"
 #include "drvSup.h"
+#include "errlog.h"
 #endif
 #include "epicsThread.h"
 #include "epicsInterrupt.h"
